@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-BINARY := lightChain
+BINARY := build/lightChain
 
 all: build run
 

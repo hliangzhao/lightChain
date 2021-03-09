@@ -8,9 +8,12 @@ import (
 )
 
 type Block struct {
-	TimeStamp int64
+	// block header
+	TimeStamp     int64
 	PrevBlockHash []byte
-	Hash []byte
+	Hash          []byte
+	Nonce         int
+	// block body
 	Data []byte
 }
 
@@ -23,13 +26,21 @@ func (b *Block) SetHash() {
 }
 
 // NewBlock generates a new block with data and previous block hash.
+// Miner needs to run the Mine() function while validator needs to run the validate() function.
 func NewBlock(data string, prevBlockHash []byte) *Block {
 	var block = &Block{
 		TimeStamp:     time.Now().Unix(),
 		PrevBlockHash: prevBlockHash,
 		Hash:          []byte{},
+		Nonce:         0,
 		Data:          []byte(data)}
-	block.SetHash()
+	proof := NewPoW(block)
+	nonce, hash := proof.Mine()
+
+	block.Hash = hash
+	block.Nonce = nonce
+	// block.SetHash()
+
 	return block
 }
 
