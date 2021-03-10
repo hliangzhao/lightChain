@@ -4,14 +4,28 @@
 
 BINARY := build/lightChain
 
-all: build run
+all: build test
 
-build:
+build: deps
 	@echo "==> Go build"
 	@go build -o $(BINARY)
 
-run:
-	@echo "==> Running"
-	@./$(BINARY)
+deps:
+	@go get -v -u github.com/boltdb/bolt
 
-.PHONY: build run
+test:
+	@echo "==> Running"
+
+	@echo "==> Call printchain:"
+	@./$(BINARY) printchain
+
+	@echo "==> Call addblock:"
+	@./$(BINARY) addblock -data "Send 1 LIG to hliangzhao"
+
+	@echo "==> Call addblock:"
+	@./$(BINARY) addblock -data "Pay 0.13334 LIG for a coffee"
+
+	@echo "==> Call printchain:"
+	@./$(BINARY) printchain
+
+.PHONY: build deps test

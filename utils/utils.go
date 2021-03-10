@@ -6,7 +6,7 @@ import (
 	`log`
 )
 
-// Int2Hex: transfer a int64 value into a byte slice.
+// Int2Hex converts an int64 value into a byte slice.
 func Int2Hex(num int64) []byte {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, num)

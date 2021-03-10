@@ -3,6 +3,8 @@ package core
 import (
 	`bytes`
 	`crypto/sha256`
+	`encoding/gob`
+	`log`
 	`strconv`
 	`time`
 )
@@ -17,16 +19,17 @@ type Block struct {
 	Data []byte
 }
 
-// SetHash: set the hash value of current block by SHA256(PrevBlockHash + TimeStamp + Data).
-func (b *Block) SetHash() {
-	timestamp := []byte(strconv.FormatInt(b.TimeStamp, 10))
-	headers := bytes.Join([][]byte{b.PrevBlockHash, b.Data, timestamp}, []byte{})
+// SetHash sets the hash value of current block by SHA256(PrevBlockHash + TimeStamp + Data).
+// This function is temporarily used in early development stage, it is replaced by PoW.
+func (block *Block) SetHash() {
+	timestamp := []byte(strconv.FormatInt(block.TimeStamp, 10))
+	headers := bytes.Join([][]byte{block.PrevBlockHash, block.Data, timestamp}, []byte{})
 	hash := sha256.Sum256(headers)
-	b.Hash = hash[:]
+	block.Hash = hash[:]
 }
 
 // NewBlock generates a new block with data and previous block hash.
-// Miner needs to run the Mine() function while validator needs to run the validate() function.
+// Miner needs to run the Mine() function while validator needs to run the Validate function.
 func NewBlock(data string, prevBlockHash []byte) *Block {
 	var block = &Block{
 		TimeStamp:     time.Now().Unix(),
@@ -39,12 +42,37 @@ func NewBlock(data string, prevBlockHash []byte) *Block {
 
 	block.Hash = hash
 	block.Nonce = nonce
-	// block.SetHash()
 
 	return block
 }
 
-// NewGenesisBlock: generate the very first block of the chain.
+// NewGenesisBlock generates the very first block of the chain.
 func NewGenesisBlock() *Block {
 	return NewBlock("Genesis Block", []byte{})
+}
+
+// Serialize converts the block into a serialized byte slice.
+func (block *Block) Serialize() []byte {
+	var buf bytes.Buffer
+	encoder := gob.NewEncoder(&buf)
+
+	err := encoder.Encode(block)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return buf.Bytes()
+}
+
+// Deserialize returns a block pointer decoded from the serialized data encodedData.
+func Deserialize(encodedData []byte) *Block {
+	var b Block
+	decoder := gob.NewDecoder(bytes.NewReader(encodedData))
+
+	err := decoder.Decode(&b)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return &b
 }
