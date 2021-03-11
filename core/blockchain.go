@@ -17,7 +17,9 @@
 package core
 
 import (
+	`bytes`
 	`encoding/hex`
+	`errors`
 	`fmt`
 	`github.com/boltdb/bolt`
 	`log`
@@ -124,6 +126,7 @@ func NewBlockChain() *BlockChain {
 	return &BlockChain{tip, db}
 }
 
+// TODO: this function waits for changing.
 // MineBlock appends a new block to the blockchain through mining. Each new block is mined through PoW and
 // the key-value pair (block hash, serialized block data) will be stored into the db.
 func (chain *BlockChain) MineBlock(txs []*Transaction) {
@@ -247,6 +250,31 @@ Search:
 	}
 
 	return accumulated, unspentOutputs
+}
+
+// FindTx returns a Transaction according to the Id provided.
+func (chain *BlockChain) FindTx(Id []byte) (Transaction, error) {
+	iter := chain.Iterator()
+	for {
+		block := iter.Next()
+		for _, tx := range block.Transactions {
+			if bytes.Compare(tx.Id, Id) == 0 {
+				return *tx, nil
+			}
+		}
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
+	return Transaction{}, errors.New("transaction not found")
+}
+
+func (chain *BlockChain) SignTx(tx *Transaction, privateKey) {
+
+}
+
+func (chain *BlockChain) VerifyTx(tx *Transaction) bool {
+
 }
 
 // IterOnChain is an iterator on the blockchain.

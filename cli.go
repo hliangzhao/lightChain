@@ -30,6 +30,8 @@ type CLI struct {}
 
 const usage = `Usage:
 	createchain -addr ADDR                   --- Create lightChain and send coinbase reward of the genesis block to ADDR
+	createwallet                             --- Generate a new public-private key pair and save into the wallet file
+	listaddr                                 --- List all addresses saved in the wallet file
 	printchain                               --- Print all the blocks in lightChain
 	send -src ADDR1 -dst ADDR2 -amount AMT   --- Send AMT of coins from ADDR1 to ADDR2
 	getbalance -addr ADDR                    --- Get the balance of ADDR`
@@ -66,8 +68,8 @@ func (cli *CLI) printChain() {
 		fmt.Printf("Previous block's hash: %x\n", block.PrevBlockHash)
 		fmt.Printf("Hash: %x\n", block.Hash)
 		// new a validator with the mined block to examine the nonce
-		proof := core.NewPoW(block)
-		fmt.Printf("Proof: Pow, Validated: %s\n\n", strconv.FormatBool(proof.Validate()))
+		pow := core.NewPoW(block)
+		fmt.Printf("Proof: PoW, Validated: %s\n\n", strconv.FormatBool(pow.Validate()))
 
 		if len(block.PrevBlockHash) == 0 {
 			break
@@ -75,6 +77,7 @@ func (cli *CLI) printChain() {
 	}
 }
 
+// TODO: this function waits for changing.
 // createBlockChain calls CreateBlockChain() to create lightChain.
 func (cli *CLI) createBlockChain(addr string) {
 	chain := core.CreateBlockChain(addr)
@@ -85,6 +88,17 @@ func (cli *CLI) createBlockChain(addr string) {
 	fmt.Printf("Done!\n\n")
 }
 
+// TODO: this function waits for changing.
+func (cli *CLI) createWallet() {
+
+}
+
+// TODO: this function waits for changing.
+func (cli *CLI) listAddrs() {
+
+}
+
+// TODO: this function waits for changing.
 // getBalance prints the balance of the node addr.
 func (cli *CLI) getBalance(addr string) {
 	chain := core.NewBlockChain()
@@ -103,6 +117,7 @@ func (cli *CLI) getBalance(addr string) {
 	fmt.Printf("The balance of '%s': %d\n\n", addr, balance)
 }
 
+// TODO: this function waits for changing.
 // send invoke a transfer transaction from srcAddr to dstAddr with certain amount.
 func (cli *CLI) send(srcAddr, dstAddr string, amount int) {
 	chain := core.NewBlockChain()
@@ -126,6 +141,10 @@ func (cli *CLI) Run() {
 	createChainSubCmd := flag.NewFlagSet("createchain", flag.ExitOnError)
 	addr2GetReward := createChainSubCmd.String("addr", "", "The address to get the coinbase reward of the genesis block")
 
+	createWalletSubCmd := flag.NewFlagSet("createwallet", flag.ExitOnError)
+
+	listAddrSubCmd := flag.NewFlagSet("listaddr", flag.ExitOnError)
+
 	printChainSubCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 
 	sendSubCmd := flag.NewFlagSet("send", flag.ExitOnError)
@@ -140,6 +159,16 @@ func (cli *CLI) Run() {
 	switch os.Args[1] {
 	case "createchain":
 		err := createChainSubCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "createwallet":
+		err := createWalletSubCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "listaddr":
+		err := listAddrSubCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -170,6 +199,12 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 		cli.createBlockChain(*addr2GetReward)
+	}
+	if createWalletSubCmd.Parsed() {
+		cli.createWallet()
+	}
+	if listAddrSubCmd.Parsed() {
+		cli.listAddrs()
 	}
 	if printChainSubCmd.Parsed() {
 		cli.printChain()

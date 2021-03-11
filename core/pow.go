@@ -26,7 +26,7 @@ import (
 )
 
 // number of 0 bits at the beginning of the hash for PoW, tuned for changing difficulty
-const targetBits = 2			// larger this number, more difficult the mining
+const targetBits = 4			// larger this number, more difficult the mining
 // the trial of nonce ranging from 0 to maxNonce
 const maxNonce = math.MaxInt64
 
