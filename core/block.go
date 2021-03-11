@@ -1,3 +1,19 @@
+// Copyright 2021 Hailiang Zhao <hliangzhao@zju.edu.cn>
+// This file is part of the lightChain.
+//
+// The lightChain is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The lightChain is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the lightChain. If not, see <http://www.gnu.org/licenses/>.
+
 package core
 
 import (
@@ -5,7 +21,6 @@ import (
 	`crypto/sha256`
 	`encoding/gob`
 	`log`
-	`strconv`
 	`time`
 )
 
@@ -15,30 +30,21 @@ type Block struct {
 	PrevBlockHash []byte
 	Hash          []byte
 	Nonce         int
-	// block body
-	Data []byte
+	// block body (slice of transactions)
+	Transactions []*Transaction
 }
 
-// SetHash sets the hash value of current block by SHA256(PrevBlockHash + TimeStamp + Data).
-// This function is temporarily used in early development stage, it is replaced by PoW.
-func (block *Block) SetHash() {
-	timestamp := []byte(strconv.FormatInt(block.TimeStamp, 10))
-	headers := bytes.Join([][]byte{block.PrevBlockHash, block.Data, timestamp}, []byte{})
-	hash := sha256.Sum256(headers)
-	block.Hash = hash[:]
-}
-
-// NewBlock generates a new block with data and previous block hash.
-// Miner needs to run the Mine() function while validator needs to run the Validate function.
-func NewBlock(data string, prevBlockHash []byte) *Block {
+// NewBlock generates a new block with slice of Transaction and previous block hash.
+// Miner needs to run the Run() function while validator needs to run the Validate function.
+func NewBlock(txs []*Transaction, prevBlockHash []byte) *Block {
 	var block = &Block{
 		TimeStamp:     time.Now().Unix(),
 		PrevBlockHash: prevBlockHash,
 		Hash:          []byte{},
 		Nonce:         0,
-		Data:          []byte(data)}
+		Transactions:  txs}
 	proof := NewPoW(block)
-	nonce, hash := proof.Mine()
+	nonce, hash := proof.Run()
 
 	block.Hash = hash
 	block.Nonce = nonce
@@ -46,9 +52,10 @@ func NewBlock(data string, prevBlockHash []byte) *Block {
 	return block
 }
 
-// NewGenesisBlock generates the very first block of the chain.
-func NewGenesisBlock() *Block {
-	return NewBlock("Genesis Block", []byte{})
+// NewGenesisBlock generates the very first block of the chain with only one Transaction,
+// i.e. the coinbase transaction.
+func NewGenesisBlock(coinbaseTx *Transaction) *Block {
+	return NewBlock([]*Transaction{coinbaseTx}, []byte{})
 }
 
 // Serialize converts the block into a serialized byte slice.
@@ -66,13 +73,26 @@ func (block *Block) Serialize() []byte {
 
 // Deserialize returns a block pointer decoded from the serialized data encodedData.
 func Deserialize(encodedData []byte) *Block {
-	var b Block
+	var block Block
 	decoder := gob.NewDecoder(bytes.NewReader(encodedData))
 
-	err := decoder.Decode(&b)
+	err := decoder.Decode(&block)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	return &b
+	return &block
+}
+
+// HashingAllTxs returns the hashing result of all the transactions' Id in the caller block.
+func (block *Block) HashingAllTxs() []byte {
+	var hashed [32]byte
+	var txHashes [][]byte
+
+	for _, tx := range block.Transactions {
+		txHashes = append(txHashes, tx.Id)
+	}
+	hashed = sha256.Sum256(bytes.Join(txHashes, []byte{}))
+
+	return hashed[:]
 }

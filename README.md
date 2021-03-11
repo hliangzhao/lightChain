@@ -5,7 +5,7 @@ Several days ago, I learned the blockchain techniques from the online lectures
 from PKU. I was deeply attracted by the beauty of the underlying principles of the blockchain. To test the effect of 
 learning, I build a light-weight blockchain (named lightChain) starting from scratch in this repo. When writing 
 lightChain, I refer to several open-source projects such as the famous [go-ethereum](https://github.com/ethereum/go-ethereum), 
-the[bitcoin/bitcoin](https://github.com/bitcoin/bitcoin) , and several guidance-oriented blogs (see references).
+the [bitcoin/bitcoin](https://github.com/bitcoin/bitcoin) , and several guidance-oriented blogs (see references).
 
 
 **To-Do List:**

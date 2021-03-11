@@ -1,3 +1,19 @@
+// Copyright 2021 Hailiang Zhao <hliangzhao@zju.edu.cn>
+// This file is part of the lightChain.
+//
+// The lightChain is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The lightChain is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the lightChain. If not, see <http://www.gnu.org/licenses/>.
+
 package core
 
 import (
@@ -28,31 +44,31 @@ func NewPoW(block *Block) *ProofOfWork {
 }
 
 // prepareData joins the existing data into a byte slice, for the purpose of hashing.
-func (proof *ProofOfWork) prepareData(nonce int) []byte {
+func (pow *ProofOfWork) prepareData(nonce int) []byte {
 	return bytes.Join(
 		[][]byte{
-			proof.block.PrevBlockHash,
-			proof.block.Data,
-			utils.Int2Hex(proof.block.TimeStamp),
+			pow.block.PrevBlockHash,
+			pow.block.HashingAllTxs(),
+			utils.Int2Hex(pow.block.TimeStamp),
 			utils.Int2Hex(int64(targetBits)),
 			utils.Int2Hex(int64(nonce))},
 		[]byte{},
 	)
 }
 
-// Mine finds the satisfied hash of data by trying different nonce.
-func (proof *ProofOfWork) Mine() (int, []byte) {
+// Run finds the satisfied hash of data by trying different nonce.
+func (pow *ProofOfWork) Run() (int, []byte) {
 	var hashInt big.Int
 	var hash [32]byte
 	nonce := 0
 
-	fmt.Printf("Mining the block containing data: \"%s\"...\n", proof.block.Data)
+	fmt.Println("Start to mining a new block...")
 	// iteration over each possible nonce util find a nonce that satisfies "sha256(data) < target"
 	for nonce < maxNonce {
-		data := proof.prepareData(nonce)
+		data := pow.prepareData(nonce)
 		hash = sha256.Sum256(data)
 		hashInt.SetBytes(hash[:])
-		if hashInt.Cmp(proof.target) == -1 {
+		if hashInt.Cmp(pow.target) == -1 {
 			break
 		} else {
 			nonce++
@@ -62,12 +78,12 @@ func (proof *ProofOfWork) Mine() (int, []byte) {
 }
 
 // Validate the mining result (nonce).
-func (proof *ProofOfWork) Validate() bool {
+func (pow *ProofOfWork) Validate() bool {
 	var hashInt big.Int
 
-	data := proof.prepareData(proof.block.Nonce)
+	data := pow.prepareData(pow.block.Nonce)
 	hash := sha256.Sum256(data)
 	hashInt.SetBytes(hash[:])
 
-	return -1 == hashInt.Cmp(proof.target)
+	return -1 == hashInt.Cmp(pow.target)
 }

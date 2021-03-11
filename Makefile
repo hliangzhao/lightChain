@@ -2,30 +2,40 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-BINARY := build/lightChain
+BIN := build/lightChain
 
 all: build test
 
-build: deps
+build: dependencies
 	@echo "==> Go build"
-	@go build -o $(BINARY)
+	@go build -o $(BIN)
+	@echo "==> Build successfully!\n\n"
 
-deps:
+dependencies:
 	@go get -v -u github.com/boltdb/bolt
 
 test:
 	@echo "==> Running"
 
-	@echo "==> Call printchain:"
-	@./$(BINARY) printchain
-
-	@echo "==> Call addblock:"
-	@./$(BINARY) addblock -data "Send 1 LIG to hliangzhao"
-
-	@echo "==> Call addblock:"
-	@./$(BINARY) addblock -data "Pay 0.13334 LIG for a coffee"
+	@echo "==> Create lightChain"
+	@./$(BIN) createchain -addr "hliangzhao"
 
 	@echo "==> Call printchain:"
-	@./$(BINARY) printchain
+	@./$(BIN) printchain
 
-.PHONY: build deps test
+	@echo "==> Call send:"
+	@./$(BIN) send -src "hliangzhao" -dst "alei" -amount 520
+
+	@echo "==> Call send:"
+	@./$(BIN) send -src "hliangzhao" -dst "alei" -amount 6
+
+	@echo "==> Call getbalance:"
+	@./$(BIN) getbalance -addr "hliangzhao"
+
+	@echo "==> Call getbalance:"
+	@./$(BIN) getbalance -addr "alei"
+
+	@echo "==> Call printchain:"
+	@./$(BIN) printchain
+
+.PHONY: build dependencies test
