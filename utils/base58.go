@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the lightChain. If not, see <http://www.gnu.org/licenses/>.
 
-/* This file gives the encoding and decoding of base58, which are used to generate the wallet addresses. */
+/* This file gives the encoding and decoding methods of base58, which are used to generate the wallet addresses. */
 package utils
 
 import (

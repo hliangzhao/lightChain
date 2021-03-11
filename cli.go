@@ -20,21 +20,22 @@ import (
 	`flag`
 	`fmt`
 	`lightChain/core`
+	`lightChain/utils`
 	`log`
 	`os`
 	`strconv`
 )
 
 // CLI is the command line interface for lightChain.
-type CLI struct {}
+type CLI struct{}
 
 const usage = `Usage:
-	createchain -addr ADDR                   --- Create lightChain and send coinbase reward of the genesis block to ADDR
-	createwallet                             --- Generate a new public-private key pair and save into the wallet file
-	listaddr                                 --- List all addresses saved in the wallet file
-	printchain                               --- Print all the blocks in lightChain
-	send -src ADDR1 -dst ADDR2 -amount AMT   --- Send AMT of coins from ADDR1 to ADDR2
-	getbalance -addr ADDR                    --- Get the balance of ADDR`
+	createchain -addr ADDR                  --- Create lightChain and send coinbase reward of the genesis block to ADDR
+	createwallet                            --- Generate a new public-private key pair and save into the wallet file
+	listaddr                                --- List all addresses saved in the wallet file
+	printchain                              --- Print all the blocks in lightChain
+	send -src ADDR1 -dst ADDR2 -amount AMT  --- Send AMT of coins from ADDR1 to ADDR2
+	getbalance -addr ADDR                   --- Get the balance of ADDR`
 
 // printUsage prints the usage of the cli.
 func (cli *CLI) printUsage() {
@@ -77,9 +78,11 @@ func (cli *CLI) printChain() {
 	}
 }
 
-// TODO: this function waits for changing.
-// createBlockChain calls CreateBlockChain() to create lightChain.
+// createBlockChain creates lightChain on the whole network.
 func (cli *CLI) createBlockChain(addr string) {
+	if !core.ValidateAddr(addr) {
+		log.Panic("Error: address is not valid")
+	}
 	chain := core.CreateBlockChain(addr)
 	err := chain.Db.Close()
 	if err != nil {
@@ -88,9 +91,14 @@ func (cli *CLI) createBlockChain(addr string) {
 	fmt.Printf("Done!\n\n")
 }
 
-// TODO: this function waits for changing.
 func (cli *CLI) createWallet() {
-
+	wallets, err := core.NewWallets()
+	if err != nil {
+		log.Panic(err)
+	}
+	addr := wallets.AddWallet()
+	wallets.Save2File()
+	fmt.Printf("The newly created address: %s\n\n", addr)
 }
 
 // TODO: this function waits for changing.
@@ -98,9 +106,12 @@ func (cli *CLI) listAddrs() {
 
 }
 
-// TODO: this function waits for changing.
-// getBalance prints the balance of the node addr.
+// getBalance prints the balance of the wallet whose address is addr.
 func (cli *CLI) getBalance(addr string) {
+	if !core.ValidateAddr(addr) {
+		log.Panic("Error: address is not valid")
+	}
+
 	chain := core.NewBlockChain()
 	defer func() {
 		err := chain.Db.Close()
@@ -110,7 +121,10 @@ func (cli *CLI) getBalance(addr string) {
 	}()
 
 	balance := 0
-	UTXO := chain.FindUTXO(addr)
+	pubKeyHash := utils.Base58Decoding([]byte(addr))
+	pubKeyHash = pubKeyHash[1: len(pubKeyHash) - 4]
+	UTXO := chain.FindUTXO(pubKeyHash)
+
 	for _, output := range UTXO {
 		balance += output.Value
 	}

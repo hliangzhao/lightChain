@@ -35,7 +35,7 @@ type Block struct {
 }
 
 // NewBlock generates a new block with slice of Transaction and previous block hash.
-// Miner needs to run the Run() function while validator needs to run the Validate function.
+// Miners need to run the Run function while validators need to run the Validate function.
 func NewBlock(txs []*Transaction, prevBlockHash []byte) *Block {
 	var block = &Block{
 		TimeStamp:     time.Now().Unix(),
@@ -43,8 +43,8 @@ func NewBlock(txs []*Transaction, prevBlockHash []byte) *Block {
 		Hash:          []byte{},
 		Nonce:         0,
 		Transactions:  txs}
-	proof := NewPoW(block)
-	nonce, hash := proof.Run()
+	pow := NewPoW(block)
+	nonce, hash := pow.Run()
 
 	block.Hash = hash
 	block.Nonce = nonce
@@ -58,7 +58,7 @@ func NewGenesisBlock(coinbaseTx *Transaction) *Block {
 	return NewBlock([]*Transaction{coinbaseTx}, []byte{})
 }
 
-// Serialize converts the block into a serialized byte slice.
+// Serialize converts the block's content into a serialized byte slice.
 func (block *Block) Serialize() []byte {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
@@ -84,13 +84,13 @@ func Deserialize(encodedData []byte) *Block {
 	return &block
 }
 
-// HashingAllTxs returns the hashing result of all the transactions' Id in the caller block.
+// HashingAllTxs returns the hashing result of all the transactions in the caller block.
 func (block *Block) HashingAllTxs() []byte {
 	var hashed [32]byte
 	var txHashes [][]byte
 
 	for _, tx := range block.Transactions {
-		txHashes = append(txHashes, tx.Id)
+		txHashes = append(txHashes, tx.Hashing())
 	}
 	hashed = sha256.Sum256(bytes.Join(txHashes, []byte{}))
 

@@ -18,6 +18,7 @@ package core
 
 import (
 	`bytes`
+	`crypto/ecdsa`
 	`encoding/hex`
 	`errors`
 	`fmt`
@@ -99,11 +100,11 @@ func CreateBlockChain(addr string) *BlockChain {
 }
 
 // NewBlockChain requests lightChain from the whole network and create a local boltdb to save it.
-// It returns a pointer to local copied lightChain.
+// It returns a pointer to local copied BlockChain.
 func NewBlockChain() *BlockChain {
 	// TODO: implement p2p network to request the whole lightChain data (not just the tip) from other nodes.
 	if !dbExists() {
-		fmt.Println("No existing lightChain found in the whole network. Create one first.")
+		fmt.Println("No existing lightChain found across the whole network. Create one first.")
 		os.Exit(1)
 	}
 
@@ -126,16 +127,22 @@ func NewBlockChain() *BlockChain {
 	return &BlockChain{tip, db}
 }
 
-// TODO: this function waits for changing.
 // MineBlock appends a new block to the blockchain through mining. Each new block is mined through PoW and
 // the key-value pair (block hash, serialized block data) will be stored into the db.
+// Before mining, each transaction packed in a block should be legal.
 func (chain *BlockChain) MineBlock(txs []*Transaction) {
 	// get the last block' hash for generating the new block
 	var lastHash []byte
+	for _, tx := range txs {
+		if !chain.VerifyTx(tx) {
+			log.Panic("Error: invalid transaction found!")
+		}
+	}
+
 	err := chain.Db.View(
 		func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte(blocksBucket))
-			lastHash = b.Get([]byte("l"))
+			bucket := tx.Bucket([]byte(blocksBucket))
+			lastHash = bucket.Get([]byte("l"))
 			return nil
 		})
 	if err != nil {
@@ -162,12 +169,15 @@ func (chain *BlockChain) MineBlock(txs []*Transaction) {
 			chain.Tip = newBlock.Hash
 			return nil
 		})
+	if err != nil {
+		log.Panic(err)
+	}
 }
 
 // FindUnspentTxs returns a slice of Transaction for the node addr. For each transaction of this slice, at least one
 // output is not spent out.
 // TODO: this function may have bugs.
-func (chain *BlockChain) FindUnspentTxs(addr string) []Transaction {
+func (chain *BlockChain) FindUnspentTxs(pubKeyHash []byte) []Transaction {
 	var unspentTxs []Transaction
 	spentTxOutputs := make(map[string][]int)
 	iter := chain.Iterator()
@@ -189,7 +199,7 @@ func (chain *BlockChain) FindUnspentTxs(addr string) []Transaction {
 					}
 				}
 				// only if no spent out matches txOutput, txOutput can be append to unspentTxs
-				if txOutput.CanBeUnlockedWith(addr) {
+				if txOutput.IsLockedWithKey(pubKeyHash) {
 					unspentTxs = append(unspentTxs, *tx)
 				}
 			}
@@ -198,7 +208,7 @@ func (chain *BlockChain) FindUnspentTxs(addr string) []Transaction {
 			// thus directly append the input tx' id and the corresponding txOutput idx to spentTxOutputs
 			if !tx.IsCoinbaseTx() {
 				for _, input := range tx.Vin {
-					if input.CanUnlockOutputWith(addr) {
+					if input.UseKey(pubKeyHash) {
 						inTxId := hex.EncodeToString(input.TxId)
 						spentTxOutputs[inTxId] = append(spentTxOutputs[inTxId], input.VoutIdx)
 					}
@@ -215,12 +225,12 @@ func (chain *BlockChain) FindUnspentTxs(addr string) []Transaction {
 }
 
 // FindUTXO returns the slice of all the outputs which are not spent over the whole blockchain for node addr.
-func (chain *BlockChain) FindUTXO(addr string) []TxOutput {
+func (chain *BlockChain) FindUTXO(pubKeyHash []byte) []TxOutput {
 	var UTXO []TxOutput
-	unspentTxs := chain.FindUnspentTxs(addr)
+	unspentTxs := chain.FindUnspentTxs(pubKeyHash)
 	for _, tx := range unspentTxs {
 		for _, txOutput := range tx.Vout {
-			if txOutput.CanBeUnlockedWith(addr) {
+			if txOutput.IsLockedWithKey(pubKeyHash) {
 				UTXO = append(UTXO, txOutput)
 			}
 		}
@@ -230,16 +240,16 @@ func (chain *BlockChain) FindUTXO(addr string) []TxOutput {
 
 // FindSpendableOutputs returns the coin quantity (the sum of legal output's value) and the corresponding slice of
 // unspent transactions' outputs (UTXO) for the node addr, where the coin quantity is expected to not less than amount.
-func (chain *BlockChain) FindSpendableOutputs(addr string, amount int) (int, map[string][]int) {
+func (chain *BlockChain) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
-	unspentTxs := chain.FindUnspentTxs(addr)
+	unspentTxs := chain.FindUnspentTxs(pubKeyHash)
 	accumulated := 0
 
 Search:
 	for _, tx := range unspentTxs {
 		txId := hex.EncodeToString(tx.Id)
 		for txOutputIdx, txOutput := range tx.Vout {
-			if txOutput.CanBeUnlockedWith(addr) && accumulated < amount {
+			if txOutput.IsLockedWithKey(pubKeyHash) && accumulated < amount {
 				accumulated += txOutput.Value
 				unspentOutputs[txId] = append(unspentOutputs[txId], txOutputIdx)
 				if accumulated >= amount {
@@ -253,12 +263,12 @@ Search:
 }
 
 // FindTx returns a Transaction according to the Id provided.
-func (chain *BlockChain) FindTx(Id []byte) (Transaction, error) {
+func (chain *BlockChain) FindTx(txId []byte) (Transaction, error) {
 	iter := chain.Iterator()
 	for {
 		block := iter.Next()
 		for _, tx := range block.Transactions {
-			if bytes.Compare(tx.Id, Id) == 0 {
+			if bytes.Compare(tx.Id, txId) == 0 {
 				return *tx, nil
 			}
 		}
@@ -269,12 +279,27 @@ func (chain *BlockChain) FindTx(Id []byte) (Transaction, error) {
 	return Transaction{}, errors.New("transaction not found")
 }
 
-func (chain *BlockChain) SignTx(tx *Transaction, privateKey) {
-
+// getPrevTxs returns a map of transactions whose output is the input of tx.
+func (chain *BlockChain) getPrevTxs(tx *Transaction) map[string]Transaction {
+	prevTxs := make(map[string]Transaction)
+	for _, vin := range tx.Vin {
+		prevTx, err := chain.FindTx(vin.TxId)
+		if err != nil {
+			log.Panic(err)
+		}
+		prevTxs[hex.EncodeToString(prevTx.Id)] = prevTx
+	}
+	return prevTxs
 }
 
-func (chain *BlockChain) VerifyTx(tx *Transaction) bool {
+// SignTx signs on the inputs of one transaction with the sender's private key.
+func (chain *BlockChain) SignTx(tx *Transaction, privateKey ecdsa.PrivateKey) {
+	tx.Sign(privateKey, chain.getPrevTxs(tx))
+}
 
+// VerifyTx verifies the input's signature of the Transaction tx.
+func (chain *BlockChain) VerifyTx(tx *Transaction) bool {
+	return tx.Verify(chain.getPrevTxs(tx))
 }
 
 // IterOnChain is an iterator on the blockchain.
