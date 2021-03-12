@@ -23,9 +23,9 @@ import (
 )
 
 // Int2Hex converts an int64 value into a byte slice.
-func Int2Hex(num int64) []byte {
+func Int2Hex(value int64) []byte {
 	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, num)
+	err := binary.Write(buf, binary.BigEndian, value)
 	if err != nil {
 		log.Panic(err)
 	}

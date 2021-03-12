@@ -20,19 +20,22 @@ import (
 	`flag`
 	`fmt`
 	`lightChain/core`
+	`lightChain/utils`
 	`log`
 	`os`
 	`strconv`
 )
 
 // CLI is the command line interface for lightChain.
-type CLI struct {}
+type CLI struct{}
 
 const usage = `Usage:
-	createchain -addr ADDR                   --- Create lightChain and send coinbase reward of the genesis block to ADDR
-	printchain                               --- Print all the blocks in lightChain
-	send -src ADDR1 -dst ADDR2 -amount AMT   --- Send AMT of coins from ADDR1 to ADDR2
-	getbalance -addr ADDR                    --- Get the balance of ADDR`
+	createchain -addr ADDR                  --- Create lightChain and send coinbase reward of the genesis block to ADDR
+	createwallet                            --- Generate a new public-private key pair and save into the wallet file
+	listaddr                                --- List all addresses saved in the wallet file
+	printchain                              --- Print all the blocks in lightChain
+	send -src ADDR1 -dst ADDR2 -amount AMT  --- Send AMT of coins from ADDR1 to ADDR2
+	getbalance -addr ADDR                   --- Get the balance of ADDR`
 
 // printUsage prints the usage of the cli.
 func (cli *CLI) printUsage() {
@@ -47,7 +50,16 @@ func (cli *CLI) validateArgs() {
 	}
 }
 
-// TODO: implement a function to print all the transactions an addr involved.
+func (cli *CLI) listAddrs() {
+	wallets, err := core.NewWallets()
+	if err != nil {
+		log.Panic(err)
+	}
+	addrs := wallets.GetAddrs()
+	for addrIdx, addr := range addrs {
+		fmt.Printf("#%d: %s\n", addrIdx, addr)
+	}
+}
 
 // printChain prints all blocks of lightChain from the newest to the oldest.
 func (cli *CLI) printChain() {
@@ -66,8 +78,8 @@ func (cli *CLI) printChain() {
 		fmt.Printf("Previous block's hash: %x\n", block.PrevBlockHash)
 		fmt.Printf("Hash: %x\n", block.Hash)
 		// new a validator with the mined block to examine the nonce
-		proof := core.NewPoW(block)
-		fmt.Printf("Proof: Pow, Validated: %s\n\n", strconv.FormatBool(proof.Validate()))
+		pow := core.NewPoW(block)
+		fmt.Printf("Proof: PoW, Validated: %s\n\n", strconv.FormatBool(pow.Validate()))
 
 		if len(block.PrevBlockHash) == 0 {
 			break
@@ -75,8 +87,11 @@ func (cli *CLI) printChain() {
 	}
 }
 
-// createBlockChain calls CreateBlockChain() to create lightChain.
+// createBlockChain creates lightChain on the whole network.
 func (cli *CLI) createBlockChain(addr string) {
+	if !core.ValidateAddr(addr) {
+		log.Panic("Error: address is not valid")
+	}
 	chain := core.CreateBlockChain(addr)
 	err := chain.Db.Close()
 	if err != nil {
@@ -85,8 +100,22 @@ func (cli *CLI) createBlockChain(addr string) {
 	fmt.Printf("Done!\n\n")
 }
 
-// getBalance prints the balance of the node addr.
+func (cli *CLI) createWallet() {
+	wallets, err := core.NewWallets()
+	if err != nil {
+		log.Panic(err)
+	}
+	addr := wallets.AddWallet()
+	wallets.Save2File()
+	fmt.Printf("The newly created address: %s\n\n", addr)
+}
+
+// getBalance prints the balance of the wallet whose address is addr.
 func (cli *CLI) getBalance(addr string) {
+	if !core.ValidateAddr(addr) {
+		log.Panic("Error: address is not valid")
+	}
+
 	chain := core.NewBlockChain()
 	defer func() {
 		err := chain.Db.Close()
@@ -96,13 +125,17 @@ func (cli *CLI) getBalance(addr string) {
 	}()
 
 	balance := 0
-	UTXO := chain.FindUTXO(addr)
+	pubKeyHash := utils.Base58Decoding([]byte(addr))
+	pubKeyHash = pubKeyHash[1: len(pubKeyHash) - 4]
+	UTXO := chain.FindUTXO(pubKeyHash)
+
 	for _, output := range UTXO {
 		balance += output.Value
 	}
 	fmt.Printf("The balance of '%s': %d\n\n", addr, balance)
 }
 
+// TODO: this function waits for changing.
 // send invoke a transfer transaction from srcAddr to dstAddr with certain amount.
 func (cli *CLI) send(srcAddr, dstAddr string, amount int) {
 	chain := core.NewBlockChain()
@@ -126,6 +159,10 @@ func (cli *CLI) Run() {
 	createChainSubCmd := flag.NewFlagSet("createchain", flag.ExitOnError)
 	addr2GetReward := createChainSubCmd.String("addr", "", "The address to get the coinbase reward of the genesis block")
 
+	createWalletSubCmd := flag.NewFlagSet("createwallet", flag.ExitOnError)
+
+	listAddrSubCmd := flag.NewFlagSet("listaddr", flag.ExitOnError)
+
 	printChainSubCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 
 	sendSubCmd := flag.NewFlagSet("send", flag.ExitOnError)
@@ -140,6 +177,16 @@ func (cli *CLI) Run() {
 	switch os.Args[1] {
 	case "createchain":
 		err := createChainSubCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "createwallet":
+		err := createWalletSubCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "listaddr":
+		err := listAddrSubCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -170,6 +217,12 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 		cli.createBlockChain(*addr2GetReward)
+	}
+	if createWalletSubCmd.Parsed() {
+		cli.createWallet()
+	}
+	if listAddrSubCmd.Parsed() {
+		cli.listAddrs()
 	}
 	if printChainSubCmd.Parsed() {
 		cli.printChain()

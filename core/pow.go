@@ -26,7 +26,7 @@ import (
 )
 
 // number of 0 bits at the beginning of the hash for PoW, tuned for changing difficulty
-const targetBits = 2			// larger this number, more difficult the mining
+const targetBits = 4			// larger this number, more difficult the mining
 // the trial of nonce ranging from 0 to maxNonce
 const maxNonce = math.MaxInt64
 
@@ -62,7 +62,7 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 	var hash [32]byte
 	nonce := 0
 
-	fmt.Println("Start to mining a new block...")
+	fmt.Println("Start to mine a new block...")
 	// iteration over each possible nonce util find a nonce that satisfies "sha256(data) < target"
 	for nonce < maxNonce {
 		data := pow.prepareData(nonce)

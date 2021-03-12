@@ -13,9 +13,10 @@ build: dependencies
 
 dependencies:
 	@go get -v -u github.com/boltdb/bolt
+	@go get -v -u golang.org/x/crypto/ripemd160
 
 test:
-	@echo "==> Running"
+	@echo "==> Running test"
 
 	@echo "==> Create lightChain"
 	@./$(BIN) createchain -addr "hliangzhao"
