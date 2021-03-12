@@ -11,7 +11,7 @@ the [bitcoin/bitcoin](https://github.com/bitcoin/bitcoin) , and several guidance
 
 
 In lightChain, we basically use PoW for the mining of new blocks. I may add the implementation of 
-PoS and some other variants in the future.
+PoS and some other variants in the future. It depends. :-)
 
 
 **To-Do List:**

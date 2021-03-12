@@ -16,18 +16,12 @@
 
 package utils
 
-import (
-	`bytes`
-	`encoding/binary`
-	`log`
-)
+import `os`
 
-// Int2Hex converts an int64 value into a byte slice.
-func Int2Hex(value int64) []byte {
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, value)
-	if err != nil {
-		log.Panic(err)
+// FileExists checks whether the file with path filePath exists or not.
+func FileExists(filePath string) (bool, error) {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return false, err
 	}
-	return buf.Bytes()
+	return true, nil
 }

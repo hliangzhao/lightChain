@@ -23,6 +23,7 @@ import (
 	`errors`
 	`fmt`
 	`github.com/boltdb/bolt`
+	`lightChain/utils`
 	`log`
 	`os`
 	`time`
@@ -43,18 +44,10 @@ type BlockChain struct {
 	Db  *bolt.DB // the pointer-to-db where the chain stored
 }
 
-// dbExists judges whether the lightChain db exists in local host.
-func dbExists() bool {
-	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
-		return false
-	}
-	return true
-}
-
 // CreateBlockChain creates the first lightChain across the whole network.
 // addr is the address of the node who do the creation operation.
 func CreateBlockChain(addr string) *BlockChain {
-	if dbExists() {
+	if ok, _ := utils.FileExists(dbFile); ok {
 		fmt.Println("lightChain is found in the whole network. You should not create it again.")
 		os.Exit(1)
 	}
@@ -103,7 +96,7 @@ func CreateBlockChain(addr string) *BlockChain {
 // It returns a pointer to local copied BlockChain.
 func NewBlockChain() *BlockChain {
 	// TODO: implement p2p network to request the whole lightChain data (not just the tip) from other nodes.
-	if !dbExists() {
+	if ok, _ := utils.FileExists(dbFile); !ok {
 		fmt.Println("No existing lightChain found across the whole network. Create one first.")
 		os.Exit(1)
 	}

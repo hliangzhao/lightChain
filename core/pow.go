@@ -62,7 +62,7 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 	var hash [32]byte
 	nonce := 0
 
-	fmt.Println("Start to mining a new block...")
+	fmt.Println("Start to mine a new block...")
 	// iteration over each possible nonce util find a nonce that satisfies "sha256(data) < target"
 	for nonce < maxNonce {
 		data := pow.prepareData(nonce)

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the lightChain. If not, see <http://www.gnu.org/licenses/>.
 
+/* This file defines the data structure of Wallet, Wallets and basic operations on them. */
 package core
 
 import (
@@ -29,7 +30,6 @@ import (
 	`io/ioutil`
 	`lightChain/utils`
 	`log`
-	`os`
 )
 
 const version = byte(0x00)
@@ -48,28 +48,28 @@ func NewWallet() *Wallet {
 	return &Wallet{private, public}
 }
 
-// GetAddr returns the address of a wallet based on the wallet's public key and hashing algorithms.
-func (wallet *Wallet) GetAddr() []byte {
-	pubKeyHash := HashingPubKey(wallet.PubKey)
-
-	versionedPayload := append([]byte{version}, pubKeyHash...)
-
-	checksum := getChecksum(versionedPayload)
-	fullPayload := append(versionedPayload, checksum...)
-
-	return utils.Base58Encoding(fullPayload)
+// newKeyPair returns a private-public key pair by ecdsa.
+func newKeyPair() (ecdsa.PrivateKey, []byte) {
+	curve := elliptic.P256()
+	private, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		log.Panic(err)
+	}
+	pubKey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
+	return *private, pubKey
 }
 
-// ValidateAddr checks whether addr is a valid address.
-func ValidateAddr(addr string) bool {
-	pubKeyHash := utils.Base58Decoding([]byte(addr))
-	actualChecksum := pubKeyHash[len(pubKeyHash) - addrCheckSumLen:]
-
-	version := pubKeyHash[0]
-	pubKeyHash = pubKeyHash[1: len(pubKeyHash) - addrCheckSumLen]
-	targetChecksum := getChecksum(append([]byte{version}, pubKeyHash...))
-
-	return bytes.Compare(actualChecksum, targetChecksum) == 0
+// GenerateAddr generates the address of a wallet based on the wallet's public key and hashing algorithms.
+// In general, the address is a base58 encoded of the hash of pubKey. Because the hashing is unidirectional,
+// we cannot extract pubKey from an address. By contrast, we can check whether a pubKey is used for generating
+// an address.
+func (wallet *Wallet) GenerateAddr() []byte {
+	pubKeyHash := HashingPubKey(wallet.PubKey)
+	versionedPayload := append([]byte{version}, pubKeyHash...)
+	checksum := getChecksum(versionedPayload)
+	// version + pubKeyHash + checksum ---> base58 encoding
+	fullPayload := append(versionedPayload, checksum...)
+	return utils.Base58Encoding(fullPayload)
 }
 
 // HashingPubKey hashes the public key and returns the result.
@@ -83,17 +83,6 @@ func HashingPubKey(pubKey []byte) []byte {
 	return hasher.Sum(nil)
 }
 
-// newKeyPair returns a private-public key pair.
-func newKeyPair() (ecdsa.PrivateKey, []byte) {
-	curve := elliptic.P256()
-	private, err := ecdsa.GenerateKey(curve, rand.Reader)
-	if err != nil {
-		log.Panic(err)
-	}
-	pubKey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
-	return *private, pubKey
-}
-
 // getChecksum generates the checksum (a 4-byte slice) of given payload.
 func getChecksum(payload []byte) []byte {
 	sha1 := sha256.Sum256(payload)
@@ -101,10 +90,32 @@ func getChecksum(payload []byte) []byte {
 	return sha2[:addrCheckSumLen]
 }
 
+// ValidateAddr checks whether addr is a valid address.
+func ValidateAddr(addr string) bool {
+	fullPayload := utils.Base58Decoding([]byte(addr))
+
+	// get version, pubKeyHash, and checksum from fullPayload
+	actualVersion := fullPayload[0]
+	actualPubKeyHash := fullPayload[1 : len(fullPayload)-addrCheckSumLen]
+	actualChecksum := fullPayload[len(fullPayload)-addrCheckSumLen:]
+
+	targetChecksum := getChecksum(append([]byte{actualVersion}, actualPubKeyHash...))
+
+	return bytes.Compare(actualChecksum, targetChecksum) == 0
+}
 
 // Wallets is a collection of Wallet.
 type Wallets struct {
-	WalletsMap map[string]*Wallet       // key: address of the wallet, value: the wallet itself
+	WalletsMap map[string]*Wallet // {key: address of the wallet, value: the wallet itself}
+}
+
+// NewWallets creates Wallets from local walletFile.
+func NewWallets() (*Wallets, error) {
+	wallets := Wallets{}
+	wallets.WalletsMap = make(map[string]*Wallet)
+
+	err := wallets.LoadFromFile()
+	return &wallets, err
 }
 
 // Save2File saves the content of wallets into a local file.
@@ -124,9 +135,9 @@ func (wallets *Wallets) Save2File() {
 	}
 }
 
-// LoadFromFile loads the wallets into the caller wallets.
+// LoadFromFile loads file content to wallets.
 func (wallets *Wallets) LoadFromFile() error {
-	if _, err := os.Stat(walletFile); os.IsNotExist(err) {
+	if ok, err := utils.FileExists(walletFile); !ok {
 		return err
 	}
 
@@ -147,7 +158,7 @@ func (wallets *Wallets) LoadFromFile() error {
 	return nil
 }
 
-// GetAddrs returns a slice of all addresses from wallets.
+// GetAddrs returns all addresses from wallets.
 func (wallets *Wallets) GetAddrs() []string {
 	var addrs []string
 	for addr := range wallets.WalletsMap {
@@ -164,19 +175,10 @@ func (wallets *Wallets) GetWallet(addr string) (Wallet, error) {
 	return *wallets.WalletsMap[addr], nil
 }
 
-// NewWallets creates Wallets from local walletFile.
-func NewWallets() (*Wallets, error) {
-	wallets := Wallets{}
-	wallets.WalletsMap = make(map[string]*Wallet)
-
-	err := wallets.LoadFromFile()
-	return &wallets, err
-}
-
-// AddWallet creates a new Wallet, add it (and its address) to the caller and returns the address.
+// AddWallet creates a new Wallet, add it (and its address) to wallets and returns the address.
 func (wallets *Wallets) AddWallet() string {
 	wallet := NewWallet()
-	addr := fmt.Sprintf("%s", wallet.GetAddr())
+	addr := fmt.Sprintf("The address of this wallet: %s", wallet.GenerateAddr())
 
 	wallets.WalletsMap[addr] = wallet
 	return addr

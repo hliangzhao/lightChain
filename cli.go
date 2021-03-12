@@ -50,7 +50,16 @@ func (cli *CLI) validateArgs() {
 	}
 }
 
-// TODO: implement a function to print all the transactions an addr involved.
+func (cli *CLI) listAddrs() {
+	wallets, err := core.NewWallets()
+	if err != nil {
+		log.Panic(err)
+	}
+	addrs := wallets.GetAddrs()
+	for addrIdx, addr := range addrs {
+		fmt.Printf("#%d: %s\n", addrIdx, addr)
+	}
+}
 
 // printChain prints all blocks of lightChain from the newest to the oldest.
 func (cli *CLI) printChain() {
@@ -99,11 +108,6 @@ func (cli *CLI) createWallet() {
 	addr := wallets.AddWallet()
 	wallets.Save2File()
 	fmt.Printf("The newly created address: %s\n\n", addr)
-}
-
-// TODO: this function waits for changing.
-func (cli *CLI) listAddrs() {
-
 }
 
 // getBalance prints the balance of the wallet whose address is addr.

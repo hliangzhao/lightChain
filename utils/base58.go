@@ -23,7 +23,7 @@ import (
 )
 
 var alphabet = []byte("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
-var length = int64(len(alphabet))
+var length = int64(len(alphabet)) // 58
 
 // Base58Encoding returns the base58 encoding result for input.
 func Base58Encoding(input []byte) []byte {
@@ -34,7 +34,7 @@ func Base58Encoding(input []byte) []byte {
 	mod := &big.Int{}
 
 	for x.Cmp(zero) != 0 {
-		// x <--- x / 58, mod <--- x - x / 58
+		// x <--- x/58, mod <--- x-x/58 until x is 0
 		x.DivMod(x, base, mod)
 		encoded = append(encoded, alphabet[mod.Int64()])
 	}
