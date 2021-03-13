@@ -33,8 +33,7 @@ import (
 
 // coinbaseReward is the reward to the miner who successfully mined a block.
 // This value is saved in the coinbase transaction and this is the only way to generate new LIG coins.
-// TODO: add a function to decrease the value of coinbaseReward after specified quantity of blocks.
-var coinbaseReward = 666
+var coinbaseReward = 666.0
 
 // Transaction consists of its Id, a collection of TxInput, and a collection of output TxOutput.
 type Transaction struct {
@@ -43,11 +42,32 @@ type Transaction struct {
 	Vout []TxOutput
 }
 
-// TxInput includes all information required for the input of a Transaction: TxId, VoutIdx, and ScriptSig.
-// Wherein, TxId is the Id of some previous Transaction, one output of which is pointed by current Transaction's input.
+// String formalizes the output style of a Transaction.
+func (tx Transaction) String() string {
+	var outStr []string
+	outStr = append(outStr, fmt.Sprintf("TxId: %x", tx.Id))
+	for txInputIdx, txInput := range tx.Vin {
+		outStr = append(outStr, fmt.Sprintf("--input #%d", txInputIdx))
+		outStr = append(outStr, fmt.Sprintf("----TxId: %x", txInput.TxId))
+		outStr = append(outStr, fmt.Sprintf("----OutIdx: %x", txInput.VoutIdx))
+		outStr = append(outStr, fmt.Sprintf("----Signature: %x", txInput.Signature))
+		outStr = append(outStr, fmt.Sprintf("----PubKey: %x", txInput.PubKey))
+	}
+	for txOutputIdx, txOutput := range tx.Vout {
+		outStr = append(outStr, fmt.Sprintf("--output #%d", txOutputIdx))
+		outStr = append(outStr, fmt.Sprintf("----Value: %f", txOutput.Value))
+		outStr = append(outStr, fmt.Sprintf("----PubKeyHash: %x", txOutput.PubKeyHash))
+	}
+	return strings.Join(outStr, "\n")
+}
+
+/* The following defines the data structure of TxInput and operations on it. */
+
+// TxInput includes all information required for the input of a Transaction: TxId, VoutIdx, Signature, and PubKey.
+// Wherein, TxId is the Id of some previous Transaction, at least one output of which is pointed by current Transaction's some input.
 // VoutIdx is the index of the pointed output of the previous Transaction.
-// Signature is the data bytes signatured with sender's private key.
-// PubKey is the public key of sender.
+// Signature is the data bytes signed with sender's private key.
+// PubKey is the public key of sender.  // TODO: or pubKeyHash?
 type TxInput struct {
 	TxId      []byte
 	VoutIdx   int
@@ -55,36 +75,56 @@ type TxInput struct {
 	PubKey    []byte
 }
 
-// UseKey checks whether the address pubKeyHash can initialize the transaction whose Vin contains txInput.
+// UseKey checks whether the owner of pubKeyHash can initialize the Transaction whose Vin contains txInput.
 func (txInput *TxInput) UseKey(pubKeyHash []byte) bool {
 	lockingHash := HashingPubKey(txInput.PubKey)
 	return bytes.Compare(lockingHash, pubKeyHash) == 0
 }
 
+/* The following defines the data structure of TxOutput and operations on it. */
+
 // TxOutput includes all information required for the output of a Transaction: Value and PubKeyHash.
-// Wherein, Value is the quantity of the coin LIG involved in the corresponding tx, PubKeyHash is
-// the base58 encoding of the address of the receiver.
+// Wherein, Value is the quantity of the coin LIG involved in the corresponding tx.
+// PubKeyHash is the base58 encoding of the address of the receiver, which is a lock with the receiver's address.
 type TxOutput struct {
-	Value      int
+	Value      float64
 	PubKeyHash []byte
 }
 
-func (txOutput *TxOutput) Lock(addr []byte) {
-	pubKeyHash := utils.Base58Decoding(addr)
-	pubKeyHash = pubKeyHash[1: len(pubKeyHash) - 4]
+// Lock signs txOutput with the receiver's address addr.
+func (txOutput *TxOutput) Lock(addr string) {
+	fullPayload := utils.Base58Decoding([]byte(addr))
+	pubKeyHash := fullPayload[1 : len(fullPayload)-4]
 	txOutput.PubKeyHash = pubKeyHash
 }
 
-// IsLockedWithKey checks whether the node with pubKeyHash can use txOutput.
+// IsLockedWithKey checks whether txOutput belongs to the owner of pubKeyHash.
 func (txOutput *TxOutput) IsLockedWithKey(pubKeyHash []byte) bool {
 	return bytes.Compare(txOutput.PubKeyHash, pubKeyHash) == 0
 }
 
 // NewTxOutput creates a new TxOutput instance and returns the pointer to it.
-func NewTxOutput(value int, addr string) *TxOutput {
+func NewTxOutput(value float64, addr string) *TxOutput {
 	txOutput := &TxOutput{value, nil}
-	txOutput.Lock([]byte(addr))
+	txOutput.Lock(addr)
 	return txOutput
+}
+
+/* The following defines the operations on Transaction. */
+
+// NewCoinbaseTx returns a pointer to a newly created coinbase transaction. dstAddr is the address of wallet who does
+// this creation (also the address to accept reward).
+func NewCoinbaseTx(dstAddr, signaturedData string) *Transaction {
+	// TODO: signaturedData conflicts with genesisCoinbaseData.
+	if signaturedData == "" {
+		signaturedData = fmt.Sprintf("Reward to '%s'", dstAddr)
+	}
+	// txIn is from nowhere, thus its PubKey is set by signaturedData
+	txIn := TxInput{[]byte{}, -1, nil, []byte(signaturedData)}
+	txOut := NewTxOutput(coinbaseReward, dstAddr)
+	tx := Transaction{nil, []TxInput{txIn}, []TxOutput{*txOut}}
+	tx.Id = tx.Hashing()
+	return &tx
 }
 
 // IsCoinbaseTx judges whether the caller is a coinbase Transaction, i.e. the transaction for
@@ -93,26 +133,52 @@ func (tx *Transaction) IsCoinbaseTx() bool {
 	return len(tx.Vin) == 1 && len(tx.Vin[0].TxId) == 0 && tx.Vin[0].VoutIdx == -1
 }
 
-// Serialize converts tx into a serialized byte slice.
-func (tx Transaction) Serialize() []byte {
-	var buf bytes.Buffer
-	encoder := gob.NewEncoder(&buf)
+// NewUTXOTx returns a pointer to a newly created UTXO transaction. When creating an UTXO transaction,
+// firstly, we need to find the wallet of sender according to srcAddr; then, we need to check whether this
+// wallet has enough coins to support this tx. If yes, construct Vin (with src wallet's PubKey) and Vout.
+// Finally, sign this tx with src wallet's private key.
+func NewUTXOTx(srcAddr, dstAddr string, amount float64, chain *BlockChain) *Transaction {
+	var vin []TxInput
+	var vout []TxOutput
 
-	err := encoder.Encode(tx)
+	// get the sender's wallet's pubKeyHash
+	wallets, err := NewWallets()
 	if err != nil {
 		log.Panic(err)
 	}
+	senderWallet, err := wallets.GetWallet(srcAddr)
+	if err != nil {
+		log.Panic(err)
+	}
+	pubKeyHash := HashingPubKey(senderWallet.PubKey)
 
-	return buf.Bytes()
-}
+	// find enough unspent outputs to support this tx
+	accumulated, unspentOutputs := chain.FindSpendableOutputs(pubKeyHash, amount)
+	if accumulated < amount {
+		log.Panic("Error: the sender does not have enough coins to support this transaction")
+	}
+	for txId, outputIndices := range unspentOutputs {
+		decodedTxId, err := hex.DecodeString(txId)
+		if err != nil {
+			log.Panic(err)
+		}
+		for _, outputIdx := range outputIndices {
+			vin = append(vin, TxInput{decodedTxId, outputIdx, nil, senderWallet.PubKey})
+		}
+	}
 
-// Hashing returns the hashing result of input tx.
-func (tx *Transaction) Hashing() []byte {
-	var hash [32]byte
-	txCopy := *tx
-	txCopy.Id = []byte{}
-	hash = sha256.Sum256(txCopy.Serialize())
-	return hash[:]
+	vout = append(vout, *NewTxOutput(amount, dstAddr))
+	if accumulated > amount {
+		// generate the change transaction
+		// TODO: support new addr generation.
+		vout = append(vout, *NewTxOutput(accumulated-amount, srcAddr))
+	}
+
+	tx := Transaction{nil, vin, vout}
+	tx.Id = tx.Hashing()
+	// sign each input of this transaction with sender's privateKey
+	chain.SignTx(&tx, senderWallet.PrivateKey)
+	return &tx
 }
 
 // Sign signs each input of the Transaction tx.
@@ -131,6 +197,7 @@ func (tx *Transaction) Sign(privateKey ecdsa.PrivateKey, prevTxs map[string]Tran
 	for txInputIdx, txInput := range copiedTx.Vin {
 		prevTx := prevTxs[hex.EncodeToString(txInput.TxId)]
 		copiedTx.Vin[txInputIdx].Signature = nil
+		// TODO: the following line is not fully understood.
 		copiedTx.Vin[txInputIdx].PubKey = prevTx.Vout[txInput.VoutIdx].PubKeyHash
 		copiedTx.Id = copiedTx.Hashing()
 		copiedTx.Vin[txInputIdx].PubKey = nil
@@ -142,79 +209,6 @@ func (tx *Transaction) Sign(privateKey ecdsa.PrivateKey, prevTxs map[string]Tran
 		signature := append(r.Bytes(), s.Bytes()...)
 		tx.Vin[txInputIdx].Signature = signature
 	}
-}
-
-// String formalizes the output style of a Transaction.
-func (tx Transaction) String() string {
-	var outStr []string
-	outStr = append(outStr, fmt.Sprintf("TxId: %x", tx.Id))
-	for txInputIdx, txInput := range tx.Vin {
-		outStr = append(outStr, fmt.Sprintf("--#%d", txInputIdx))
-		outStr = append(outStr, fmt.Sprintf("----TxId: %x", txInput.TxId))
-		outStr = append(outStr, fmt.Sprintf("----OutIdx: %x", txInput.VoutIdx))
-		outStr = append(outStr, fmt.Sprintf("----Signature: %x", txInput.Signature))
-		outStr = append(outStr, fmt.Sprintf("----PubKey: %x", txInput.PubKey))
-	}
-	for txOutputIdx, txOutput := range tx.Vout {
-		outStr = append(outStr, fmt.Sprintf("--#%d", txOutputIdx))
-		outStr = append(outStr, fmt.Sprintf("----Value: %x", txOutput.Value))
-		outStr = append(outStr, fmt.Sprintf("----OutIdx: %x\n", txOutput.PubKeyHash))
-	}
-	return strings.Join(outStr, "\n")
-}
-
-// NewCoinbaseTx returns a pointer to a newly created coinbase transaction.
-func NewCoinbaseTx(dstAddr, signaturedData string) *Transaction {
-	if signaturedData == "" {
-		signaturedData = fmt.Sprintf("Reward to '%s'", dstAddr)
-	}
-	txIn := TxInput{[]byte{}, -1, nil, []byte(signaturedData)}
-	txOut := NewTxOutput(coinbaseReward, dstAddr)
-	tx := Transaction{nil, []TxInput{txIn}, []TxOutput{*txOut}}
-	tx.Id = tx.Hashing()
-
-	return &tx
-}
-
-// NewUTXOTx returns a pointer to a newly created UTXO transaction.
-func NewUTXOTx(srcAddr, dstAddr string, amount int, chain *BlockChain) *Transaction {
-	var vin []TxInput
-	var vout []TxOutput
-
-	wallets, err := NewWallets()
-	if err != nil {
-		log.Panic(err)
-	}
-	wallet, err := wallets.GetWallet(srcAddr)
-	if err != nil {
-		log.Panic(err)
-	}
-	pubKeyHash := HashingPubKey(wallet.PubKey)
-	accumulated, unspentOutputs := chain.FindSpendableOutputs(pubKeyHash, amount)
-	if accumulated < amount {
-		log.Panic("Error: src does not have enough coins")
-	}
-
-	for txId, outputIndices := range unspentOutputs {
-		decodedTxId, err := hex.DecodeString(txId)
-		if err != nil {
-			log.Panic(err)
-		}
-		for _, outputIdx := range outputIndices {
-			vin = append(vin, TxInput{decodedTxId, outputIdx, nil, wallet.PubKey})
-		}
-	}
-
-	vout = append(vout, *NewTxOutput(amount, dstAddr))
-	if accumulated > amount {
-		// generate the change transaction
-		vout = append(vout, *NewTxOutput(accumulated - amount, srcAddr))
-	}
-
-	tx := Transaction{nil, vin, vout}
-	tx.Id = tx.Hashing()
-	chain.SignTx(&tx, wallet.PrivateKey)
-	return &tx
 }
 
 // Copy copies tx into a newly created Transaction. This Copy will copy everything of tx except the
@@ -239,16 +233,19 @@ func (tx *Transaction) Copy() Transaction {
 	return Transaction{tx.Id, vin, vout}
 }
 
-// Verify checks whether all the inputs of Transaction tx are legal.
+// Verify checks whether all the inputs of Transaction tx are legal. Wherein, this function checks whether the inputs
+// of tx are tampered by some evil guys. If yes, the signature is incorrect.
 func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 	if tx.IsCoinbaseTx() {
 		return true
 	}
+
 	for _, txInput := range tx.Vin {
 		if prevTxs[hex.EncodeToString(txInput.TxId)].Id == nil {
 			log.Panic("Error: previous transaction is not correct")
 		}
 	}
+
 	copiedTx := tx.Copy()
 	curve := elliptic.P256()
 	for txInputIdx, txInput := range tx.Vin {
@@ -258,15 +255,15 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 		copiedTx.Id = copiedTx.Hashing()
 		copiedTx.Vin[txInputIdx].PubKey = nil
 
-		r, s := big.Int{}, big.Int{}
-		sigLength := len(txInput.Signature)
-		r.SetBytes(txInput.Signature[: (sigLength / 2)])
-		s.SetBytes(txInput.Signature[(sigLength / 2): ])
-
 		x, y := big.Int{}, big.Int{}
 		keyLength := len(txInput.PubKey)
-		x.SetBytes(txInput.PubKey[: (keyLength / 2)])
-		y.SetBytes(txInput.PubKey[(keyLength / 2): ])
+		x.SetBytes(txInput.PubKey[:(keyLength / 2)])
+		y.SetBytes(txInput.PubKey[(keyLength / 2):])
+
+		r, s := big.Int{}, big.Int{}
+		sigLength := len(txInput.Signature)
+		r.SetBytes(txInput.Signature[:(sigLength / 2)])
+		s.SetBytes(txInput.Signature[(sigLength / 2):])
 
 		if ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}, copiedTx.Id, &r, &s) == false {
 			return false
@@ -275,16 +272,25 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 	return true
 }
 
-// SetId sets the Id of the caller Transaction based on the Transaction content and sha256 algorithm.
-func (tx *Transaction) SetId() {
-	var buf bytes.Buffer
+// TODO: it seems like there is no need to copy tx for Serialize.
+// Hashing returns the hashing result of input tx, which is used to set its Id.
+func (tx *Transaction) Hashing() []byte {
 	var hash [32]byte
+	copiedTx := *tx
+	copiedTx.Id = []byte{}
+	hash = sha256.Sum256(copiedTx.Serialize())
+	return hash[:]
+}
+
+// Serialize converts the content of tx into a serialized byte slice.
+func (tx Transaction) Serialize() []byte {
+	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
 	err := encoder.Encode(tx)
 	if err != nil {
 		log.Panic(err)
 	}
-	hash = sha256.Sum256(buf.Bytes())
-	tx.Id = hash[:]
+
+	return buf.Bytes()
 }

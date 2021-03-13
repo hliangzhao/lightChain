@@ -39,6 +39,7 @@ func Base58Encoding(input []byte) []byte {
 		encoded = append(encoded, alphabet[mod.Int64()])
 	}
 	ReverseBytes(encoded)
+	// all the zero bytes at the beginning of input are encoded as alphabet[0]
 	for b := range input {
 		if b == 0x00 {
 			encoded = append([]byte{alphabet[0]}, encoded...)
@@ -64,7 +65,7 @@ func Base58Decoding(input []byte) []byte {
 		tmp.Mul(tmp, big.NewInt(length))
 		tmp.Add(tmp, big.NewInt(int64(byteIdx)))
 	}
-
+	// decode all the alphabet[0] as zero bytes at the beginning of input
 	decoded := tmp.Bytes()
 	decoded = append(bytes.Repeat([]byte{byte(0x00)}, zeroBytes), decoded...)
 	return decoded
