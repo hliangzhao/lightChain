@@ -24,13 +24,15 @@ import (
 	`time`
 )
 
+// Block consists of the block header and the block body.
 type Block struct {
 	// block header
 	TimeStamp     int64
 	PrevBlockHash []byte
 	Hash          []byte
 	Nonce         int
-	// block body (slice of transactions)
+
+	// block body (a collection of transactions)
 	Transactions []*Transaction
 }
 
@@ -43,9 +45,9 @@ func NewBlock(txs []*Transaction, prevBlockHash []byte) *Block {
 		Hash:          []byte{},
 		Nonce:         0,
 		Transactions:  txs}
+
 	pow := NewPoW(block)
 	nonce, hash := pow.Run()
-
 	block.Hash = hash
 	block.Nonce = nonce
 
@@ -84,7 +86,7 @@ func Deserialize(encodedData []byte) *Block {
 	return &block
 }
 
-// HashingAllTxs returns the hashing result of all the transactions in the caller block.
+// HashingAllTxs returns the hashing result of all the transactions in block.
 func (block *Block) HashingAllTxs() []byte {
 	var hashed [32]byte
 	var txHashes [][]byte
