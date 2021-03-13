@@ -18,9 +18,9 @@ PoS and some other variants in the future. It depends. :-)
 
 Steps | Contents | Progress
 --- | --- | ---
-1 | Add the blockchain cores | 🛋 <ui><li>Add wallets</li><li>Implement the P2P overlay network</li><li>Implement merkle tree</li><li>Update UTXO data structure</li></ui>
-2 | Add the cli | 🛋 <ui><li>Implement the P2P overlay network</li><li>List address</li><li>Reindex UTXO</li></ui>
-3 | Publish the executable and docker image | ❌
+1 | Add the blockchain cores | 🛋 <ui><li>Add wallets ☑️</li><li>Implement the P2P overlay network</li><li>Implement merkle tree</li><li>Update UTXO data structure</li></ui>
+2 | Add the cli | 🛋 🛋 🛋 <ui><li>Print lightChain ☑️</li><li>Print pointed transaction ☑️</li><li>List addresses ☑️</li><li>Reindex UTXO</li></ui>
+3 | Publish the executable and docker image | 🛋 <ui><li>Publish the executable ☑️</li><li>Publish the docker image</li></ui>
 
 
 #### References
