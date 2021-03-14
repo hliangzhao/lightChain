@@ -18,7 +18,6 @@ package core
 
 import (
 	`bytes`
-	`crypto/sha256`
 	`encoding/gob`
 	`log`
 	`time`
@@ -73,8 +72,8 @@ func (block *Block) Serialize() []byte {
 	return buf.Bytes()
 }
 
-// Deserialize returns a block pointer decoded from the serialized data encodedData.
-func Deserialize(encodedData []byte) *Block {
+// DeserializeBlock returns a block pointer decoded from the serialized data encodedData.
+func DeserializeBlock(encodedData []byte) *Block {
 	var block Block
 	decoder := gob.NewDecoder(bytes.NewReader(encodedData))
 
@@ -87,14 +86,12 @@ func Deserialize(encodedData []byte) *Block {
 }
 
 // HashingAllTxs returns the hashing result of all the transactions in block.
+// The hashing is based on the Merkle tree structure.
 func (block *Block) HashingAllTxs() []byte {
-	var hashed [32]byte
-	var txHashes [][]byte
-
+	var serializedTxData [][]byte
 	for _, tx := range block.Transactions {
-		txHashes = append(txHashes, tx.Hashing())
+		serializedTxData = append(serializedTxData, tx.Serialize())
 	}
-	hashed = sha256.Sum256(bytes.Join(txHashes, []byte{}))
-
-	return hashed[:]
+	merkleTree := NewMerkleTree(serializedTxData)
+	return merkleTree.RootNode.Data
 }

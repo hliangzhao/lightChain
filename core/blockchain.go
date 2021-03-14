@@ -34,7 +34,7 @@ import (
 /* I use the key-value database boltdb to save lightChain. Here the key is each block' hash, and the corresponding
 value is the serialized data bytes of the block. */
 const dbFile = "lightChain.db"
-const blocksBucket = "lightChain"
+const blocksBucket = "Blocks"
 
 var genesisCoinbaseData = fmt.Sprintf("The genesis block of lightChain is created at %v", time.Now().Local())
 
@@ -96,7 +96,6 @@ func CreateBlockChain(addr string) *BlockChain {
 // NewBlockChain requests lightChain from the whole network and create a local boltdb to save it.
 // It returns a pointer to local copied BlockChain.
 func NewBlockChain() *BlockChain {
-	// TODO: implement p2p network to request the whole lightChain data (not just the tip) from other nodes and save it to dbFile.
 	if ok, _ := utils.FileExists(dbFile); !ok {
 		fmt.Println("No existing lightChain found across the whole network. Create one first.")
 		os.Exit(1)
@@ -122,12 +121,12 @@ func NewBlockChain() *BlockChain {
 }
 
 // MineBlock appends a new block to the blockchain through mining. Each new block is mined through PoW and
-// the key-value pair (block hash, serialized block data) will be stored into the db.
-// Before mining, each transaction packed in a block should be legal.
-func (chain *BlockChain) MineBlock(txs []*Transaction) {
+// the key-value pair (block hash, serialized block data) will be stored into the db. Before mining, each
+// transaction packed in the block should be legal.
+func (chain *BlockChain) MineBlock(txs []*Transaction) *Block {
 	// verify all tx in txs
 	for _, tx := range txs {
-		if !chain.VerifyTx(tx) {
+		if chain.VerifyTx(tx) != true {
 			log.Panic("Error: invalid transaction found!")
 		}
 	}
@@ -166,6 +165,8 @@ func (chain *BlockChain) MineBlock(txs []*Transaction) {
 	if err != nil {
 		log.Panic(err)
 	}
+
+	return newBlock
 }
 
 // FindTx returns a Transaction according to the Transaction Id txId provided.
@@ -185,16 +186,13 @@ func (chain *BlockChain) FindTx(txId []byte) (Transaction, error) {
 	return Transaction{}, errors.New("transaction not found")
 }
 
-// FindUnspentTxs returns a slice of Transaction for the wallet denoted by pubKeyHash. For each transaction in this
-// slice, at least one TxOutput is not spent out.
-func (chain *BlockChain) FindUnspentTxs(pubKeyHash []byte) []Transaction {
-	var unspentTxs []Transaction
+// FindUTXO returns all the unspent outputs and the Transaction's Id they are packed in.
+func (chain *BlockChain) FindUTXO() map[string]TxOutputs {
+	utxo := make(map[string]TxOutputs)
 	spentTxOutputs := make(map[string][]int)
 	iter := chain.Iterator()
 
-	// remember that the iteration direction is from the newest to the oldest block
 	for {
-		// for each tx in current block, check all its txOutput
 		block := iter.Next()
 		for _, tx := range block.Transactions {
 			txId := hex.EncodeToString(tx.Id)
@@ -210,22 +208,18 @@ func (chain *BlockChain) FindUnspentTxs(pubKeyHash []byte) []Transaction {
 						}
 					}
 				}
-				// TODO: this function has bug:
-				//  Iff no spent out in spentTxOutputs[txId] matches txOutput, txOutput is unspent. That's correct.
-				//  However, we directly add tx to unspentTxs! Note that unspentTxs could have spent out txOutput!
-				if txOutput.IsLockedWithKey(pubKeyHash) {
-					unspentTxs = append(unspentTxs, *tx)
-				}
+				// this txOutput is not spent out, add it to utxo
+				txOutputs := utxo[txId]
+				txOutputs.Outputs = append(txOutputs.Outputs, txOutput)
+				utxo[txId] = txOutputs
 			}
 
 			// as the input of tx, it must be spent
 			// thus directly append the input tx' id and the corresponding txOutput idx to spentTxOutputs
 			if !tx.IsCoinbaseTx() {
 				for _, txInput := range tx.Vin {
-					if txInput.UseKey(pubKeyHash) {
-						inTxId := hex.EncodeToString(txInput.TxId)
-						spentTxOutputs[inTxId] = append(spentTxOutputs[inTxId], txInput.VoutIdx)
-					}
+					inTxId := hex.EncodeToString(txInput.TxId)
+					spentTxOutputs[inTxId] = append(spentTxOutputs[inTxId], txInput.VoutIdx)
 				}
 			}
 		}
@@ -235,46 +229,7 @@ func (chain *BlockChain) FindUnspentTxs(pubKeyHash []byte) []Transaction {
 		}
 	}
 
-	return unspentTxs
-}
-
-// FindUTXO returns all the unspent outputs of the owner of pubKeyHash.
-func (chain *BlockChain) FindUTXO(pubKeyHash []byte) []TxOutput {
-	var UTXO []TxOutput
-	unspentTxs := chain.FindUnspentTxs(pubKeyHash)
-	for _, tx := range unspentTxs {
-		// TODO: here means 'all' the outputs of tx are unspent, which could be incorrect!
-		for _, txOutput := range tx.Vout {
-			if txOutput.IsLockedWithKey(pubKeyHash) {
-				UTXO = append(UTXO, txOutput)
-			}
-		}
-	}
-	return UTXO
-}
-
-// FindSpendableOutputs returns the coin quantity (the sum of legal output's value) and the corresponding slice of
-// unspent transactions' outputs (UTXO) for the node addr, where the coin quantity is expected to not less than amount.
-func (chain *BlockChain) FindSpendableOutputs(pubKeyHash []byte, amount float64) (float64, map[string][]int) {
-	unspentOutputs := make(map[string][]int)
-	unspentTxs := chain.FindUnspentTxs(pubKeyHash)
-	accumulated := 0.0
-
-Search:
-	for _, tx := range unspentTxs {
-		txId := hex.EncodeToString(tx.Id)
-		for txOutputIdx, txOutput := range tx.Vout {
-			if txOutput.IsLockedWithKey(pubKeyHash) && accumulated < amount {
-				accumulated += txOutput.Value
-				unspentOutputs[txId] = append(unspentOutputs[txId], txOutputIdx)
-				if accumulated >= amount {
-					break Search
-				}
-			}
-		}
-	}
-
-	return accumulated, unspentOutputs
+	return utxo
 }
 
 /* The following two functions are wrappers to tx.Sign and tx.Verify. */
@@ -286,6 +241,10 @@ func (chain *BlockChain) SignTx(tx *Transaction, privateKey ecdsa.PrivateKey) {
 
 // VerifyTx verifies the input's signature of the Transaction tx.
 func (chain *BlockChain) VerifyTx(tx *Transaction) bool {
+	// this is where the bug occurs! I just fix this. :-)
+	if tx.IsCoinbaseTx() {
+		return true
+	}
 	return tx.Verify(chain.getPrevTxs(tx))
 }
 
@@ -322,7 +281,7 @@ func (iter *IterOnChain) Next() *Block {
 		func(tx *bolt.Tx) error {
 			bucket := tx.Bucket([]byte(blocksBucket))
 			encodedBlock := bucket.Get(iter.curBlockHash)
-			block = Deserialize(encodedBlock)
+			block = DeserializeBlock(encodedBlock)
 			return nil
 		})
 	if err != nil {

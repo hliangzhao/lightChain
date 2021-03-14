@@ -110,17 +110,53 @@ func NewTxOutput(value float64, addr string) *TxOutput {
 	return txOutput
 }
 
+// TxOutputs is a collection of TxOutput.
+type TxOutputs struct {
+	Outputs []TxOutput
+}
+
+// Serialize returns encoded bytes for the input txOutputs.
+func (txOutputs TxOutputs) Serialize() []byte {
+	var buf bytes.Buffer
+	encoder := gob.NewEncoder(&buf)
+
+	err := encoder.Encode(txOutputs)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return buf.Bytes()
+}
+
+// DeserializeOutputs returns a TxOutputs instance decoded from the serialized data encodedData.
+func DeserializeOutputs(encodedData []byte) TxOutputs {
+	var txOutputs TxOutputs
+	decoder := gob.NewDecoder(bytes.NewReader(encodedData))
+
+	err := decoder.Decode(&txOutputs)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return txOutputs
+}
+
 /* The following defines the operations on Transaction. */
 
 // NewCoinbaseTx returns a pointer to a newly created coinbase transaction. dstAddr is the address of wallet who does
 // this creation (also the address to accept reward).
-func NewCoinbaseTx(dstAddr, signaturedData string) *Transaction {
-	// TODO: signaturedData conflicts with genesisCoinbaseData.
-	if signaturedData == "" {
-		signaturedData = fmt.Sprintf("Reward to '%s'", dstAddr)
+func NewCoinbaseTx(dstAddr, data string) *Transaction {
+	if data == "" {
+		// TODO: in bitcoin, these data are used to sample nonce.
+		randData := make([]byte, 20)
+		_, err := rand.Read(randData)
+		if err != nil {
+			log.Panic(err)
+		}
+		data = fmt.Sprintf("%x", randData)
 	}
-	// txIn is from nowhere, thus its PubKey is set by signaturedData
-	txIn := TxInput{[]byte{}, -1, nil, []byte(signaturedData)}
+	// txIn is from nowhere, thus its PubKey is set by data
+	txIn := TxInput{[]byte{}, -1, nil, []byte(data)}
 	txOut := NewTxOutput(coinbaseReward, dstAddr)
 	tx := Transaction{nil, []TxInput{txIn}, []TxOutput{*txOut}}
 	tx.Id = tx.Hashing()
@@ -137,7 +173,7 @@ func (tx *Transaction) IsCoinbaseTx() bool {
 // firstly, we need to find the wallet of sender according to srcAddr; then, we need to check whether this
 // wallet has enough coins to support this tx. If yes, construct Vin (with src wallet's PubKey) and Vout.
 // Finally, sign this tx with src wallet's private key.
-func NewUTXOTx(srcAddr, dstAddr string, amount float64, chain *BlockChain) *Transaction {
+func NewUTXOTx(srcAddr, dstAddr string, amount float64, utxoSet *UTXOSet) *Transaction {
 	var vin []TxInput
 	var vout []TxOutput
 
@@ -153,7 +189,7 @@ func NewUTXOTx(srcAddr, dstAddr string, amount float64, chain *BlockChain) *Tran
 	pubKeyHash := HashingPubKey(senderWallet.PubKey)
 
 	// find enough unspent outputs to support this tx
-	accumulated, unspentOutputs := chain.FindSpendableOutputs(pubKeyHash, amount)
+	accumulated, unspentOutputs := utxoSet.FindSpendableOutputs(pubKeyHash, amount)
 	if accumulated < amount {
 		log.Panic("Error: the sender does not have enough coins to support this transaction")
 	}
@@ -176,8 +212,9 @@ func NewUTXOTx(srcAddr, dstAddr string, amount float64, chain *BlockChain) *Tran
 
 	tx := Transaction{nil, vin, vout}
 	tx.Id = tx.Hashing()
+
 	// sign each input of this transaction with sender's privateKey
-	chain.SignTx(&tx, senderWallet.PrivateKey)
+	utxoSet.BlockChain.SignTx(&tx, senderWallet.PrivateKey)
 	return &tx
 }
 
