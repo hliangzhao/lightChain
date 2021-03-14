@@ -16,7 +16,7 @@ if [ -e $WALLETS_FILE ]; then
   rm $WALLETS_FILE
 fi
 
-echo "==> Creat wallet twice:"
+echo "==> Creat two wallets:"
 $BIN createwallet
 $BIN createwallet
 
@@ -29,19 +29,42 @@ $BIN createchain -addr $( sed -n 1p addresses.dat )
 echo "==> Print lightChain:"
 $BIN printchain
 
-echo "==> Call send twice:"
-$BIN  send -src $( sed -n 1p addresses.dat ) -dst $( sed -n 2p addresses.dat ) -amount 520.0
-$BIN  send -src $( sed -n 2p addresses.dat ) -dst $( sed -n 1p addresses.dat ) -amount 52.1
-
-echo "==> Print the coinbase transaction in genesis block:"
-$BIN printtx -b 3 -tx 0
-
+echo "==> Send from addr1 to addr2:"
+$BIN send -src $( sed -n 1p addresses.dat ) -dst $( sed -n 2p addresses.dat ) -amount 520
 echo "==> Show balance:"
 $BIN getbalance -addr $( sed -n 1p addresses.dat )
 $BIN getbalance -addr $( sed -n 2p addresses.dat )
+echo "==> Rebuild UTXO:"
+$BIN rebuildutxo
+
+echo "==> Send from addr2 to addr1:"
+$BIN send -src $( sed -n 2p addresses.dat ) -dst $( sed -n 1p addresses.dat ) -amount 100
+echo "==> Show balance:"
+$BIN getbalance -addr $( sed -n 1p addresses.dat )
+$BIN getbalance -addr $( sed -n 2p addresses.dat )
+echo "==> Rebuild UTXO:"
+$BIN rebuildutxo
+
+echo "==> Send from addr2 to addr1:"
+$BIN send -src $( sed -n 2p addresses.dat ) -dst $( sed -n 1p addresses.dat ) -amount 100
+echo "==> Show balance:"
+$BIN getbalance -addr $( sed -n 1p addresses.dat )
+$BIN getbalance -addr $( sed -n 2p addresses.dat )
+echo "==> Rebuild UTXO:"
+$BIN rebuildutxo
 
 echo "==> Print blocks' number:"
 $BIN getblocknum
+
+echo "==> Print all transactions:"
+echo "== Block #0 =="
+$BIN printtx -b 2 -tx 0
+echo "== Block #1 =="
+$BIN printtx -b 1 -tx 0
+$BIN printtx -b 1 -tx 1
+echo "== Block #2 =="
+$BIN printtx -b 0 -tx 0
+$BIN printtx -b 0 -tx 1
 
 echo "==> Print lightChain:"
 $BIN printchain

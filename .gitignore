@@ -15,9 +15,6 @@
 */**/*dapps*
 build/_vendor/pkg
 
-lightChain.db
-wallets
-
 #*
 .#*
 *#
@@ -39,3 +36,8 @@ profile.cov
 
 # VS Code
 .vscode
+
+# project specific files
+lightChain.db
+wallets.dat
+addresses.dat

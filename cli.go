@@ -35,9 +35,11 @@ const usage = `Usage:
 	listaddr                                --- List all addresses saved in the wallet file
 	printchain                              --- Print all the blocks in lightChain
 	printtx -b BLOCK_IDX -tx TX_IDX         --- Print the the TX_IDX-th transaction of the BLOCK_IDX-th block
+	printalltxs                             --- Print all transactions in every block of current lightChain
 	getblocknum                             --- Print the number of blocks in lightChain
 	send -src ADDR1 -dst ADDR2 -amount AMT  --- Send AMT of coins from ADDR1 to ADDR2
-	getbalance -addr ADDR                   --- Get the balance of ADDR`
+	getbalance -addr ADDR                   --- Get the balance of ADDR
+	rebuildutxo                             --- Rebuild the UTXO`
 
 // printUsage prints the usage of the cli.
 func (cli *CLI) printUsage() {
@@ -99,11 +101,15 @@ func (cli *CLI) printTx(blockIdx, txIdx int64) {
 			log.Panic(err)
 		}
 	}()
-	tx, err := chain.GetTx(blockIdx, txIdx)
+	tx, err := chain.GetTx(blockIdx+1, txIdx)
 	if err != nil {
 		log.Panic(err)
 	}
 	fmt.Println(tx)
+}
+
+func (cli *CLI) printAllTxs() {
+	// TODO: add codes.
 }
 
 // getBlockNum returns the number of blocks in lightChain.
@@ -124,10 +130,15 @@ func (cli *CLI) createBlockChain(addr string) {
 		log.Panic("Error: address is not valid")
 	}
 	chain := core.CreateBlockChain(addr)
-	err := chain.Db.Close()
-	if err != nil {
-		log.Panic(err)
-	}
+	defer func() {
+		err := chain.Db.Close()
+		if err != nil {
+			log.Panic(err)
+		}
+	}()
+	// rebuild UTXO
+	utxoSet := core.UTXOSet{BlockChain: chain}
+	utxoSet.Rebuild()
 	fmt.Printf("Done!\n\n")
 }
 
@@ -137,7 +148,7 @@ func (cli *CLI) createWallet() {
 	wallets.Save2File()
 	fmt.Printf("The newly created address: %s\n\n", addr)
 
-	// save addr to file temporarily for test
+	// save addr to local file temporarily for test
 	f, err := os.OpenFile("addresses.dat", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Panic(err)
@@ -153,6 +164,34 @@ func (cli *CLI) createWallet() {
 	}
 }
 
+// send invoke a transfer transaction from srcAddr to dstAddr with certain amount.
+func (cli *CLI) send(srcAddr, dstAddr string, amount float64) {
+	if !core.ValidateAddr(srcAddr) {
+		log.Panic("Error: srcAddr is not valid")
+	}
+	if !core.ValidateAddr(dstAddr) {
+		log.Panic("Error: dstAddr is not valid")
+	}
+
+	chain := core.NewBlockChain()
+	utxoSet := core.UTXOSet{BlockChain: chain}
+	defer func() {
+		err := chain.Db.Close()
+		if err != nil {
+			log.Panic(err)
+		}
+	}()
+
+	tx := core.NewUTXOTx(srcAddr, dstAddr, amount, &utxoSet)
+	// TODO: the addr to receive the coinbase reward should be the miner's.
+	coinbaseTx := core.NewCoinbaseTx(srcAddr, "")
+	txs := []*core.Transaction{coinbaseTx, tx}
+
+	newBlock := chain.MineBlock(txs)
+	utxoSet.Update(newBlock)
+	fmt.Printf("Success!\n\n")
+}
+
 // getBalance prints the balance of the wallet whose address is addr.
 func (cli *CLI) getBalance(addr string) {
 	if !core.ValidateAddr(addr) {
@@ -160,6 +199,7 @@ func (cli *CLI) getBalance(addr string) {
 	}
 
 	chain := core.NewBlockChain()
+	utxoSet := core.UTXOSet{BlockChain: chain}
 	defer func() {
 		err := chain.Db.Close()
 		if err != nil {
@@ -169,29 +209,22 @@ func (cli *CLI) getBalance(addr string) {
 
 	balance := 0.0
 	pubKeyHash := utils.Base58Decoding([]byte(addr))
-	pubKeyHash = pubKeyHash[1: len(pubKeyHash) - 4]
-	UTXO := chain.FindUTXO(pubKeyHash)
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-4]
+	utxo := utxoSet.FindUTXO(pubKeyHash)
 
-	for _, output := range UTXO {
+	for _, output := range utxo {
 		balance += output.Value
 	}
 	fmt.Printf("The balance of '%s': %f\n\n", addr, balance)
 }
 
-// send invoke a transfer transaction from srcAddr to dstAddr with certain amount.
-func (cli *CLI) send(srcAddr, dstAddr string, amount float64) {
+// rebuildUTXO rebuilds the UTXO incrementally when lightChain changes.
+func (cli *CLI) rebuildUTXO() {
 	chain := core.NewBlockChain()
-	defer func() {
-		err := chain.Db.Close()
-		if err != nil {
-			log.Panic(err)
-		}
-	}()
+	utxoSet := core.UTXOSet{BlockChain: chain}
+	utxoSet.Rebuild()
 
-	tx := core.NewUTXOTx(srcAddr, dstAddr, amount, chain)
-	// TODO: a block should contain the coinbase tx. Call decrease coinbase reward and new a coinbase tx beforehand!
-	chain.MineBlock([]*core.Transaction{tx})
-	fmt.Printf("Success!\n\n")
+	fmt.Printf("Done! %d transactions found in UTXO set.\n\n", utxoSet.CountTxs())
 }
 
 func (cli *CLI) Run() {
@@ -210,8 +243,10 @@ func (cli *CLI) Run() {
 	printChainSubCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 
 	printTxSubCmd := flag.NewFlagSet("printtx", flag.ExitOnError)
-	blockIdx := printTxSubCmd.Int64("b", 0, "The block index since the newest block (starts from 1)")
+	blockIdx := printTxSubCmd.Int64("b", 0, "The block index since the newest block (starts from 0)")
 	txIdx := printTxSubCmd.Int64("tx", 0, "The transaction index (starts from 0)")
+
+	printAllTxsSubCmd := flag.NewFlagSet("printalltxs", flag.ExitOnError)
 
 	sendSubCmd := flag.NewFlagSet("send", flag.ExitOnError)
 	sendFrom := sendSubCmd.String("src", "", "Source wallet address")
@@ -220,6 +255,8 @@ func (cli *CLI) Run() {
 
 	getBalanceSubCmd := flag.NewFlagSet("getbalance", flag.ExitOnError)
 	addr2QueryBalance := getBalanceSubCmd.String("addr", "", "The address to query balance")
+
+	rebuildUTXOSubCmd := flag.NewFlagSet("rebuildutxo", flag.ExitOnError)
 
 	// parse flag set
 	switch os.Args[1] {
@@ -253,6 +290,11 @@ func (cli *CLI) Run() {
 		if err != nil {
 			log.Panic(err)
 		}
+	case "printalltxs":
+		err := printAllTxsSubCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
 	case "send":
 		err := sendSubCmd.Parse(os.Args[2:])
 		if err != nil {
@@ -260,6 +302,11 @@ func (cli *CLI) Run() {
 		}
 	case "getbalance":
 		err := getBalanceSubCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "rebuildutxo":
+		err := rebuildUTXOSubCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -292,6 +339,9 @@ func (cli *CLI) Run() {
 		}
 		cli.printTx(*blockIdx, *txIdx)
 	}
+	if printAllTxsSubCmd.Parsed() {
+		cli.printAllTxs()
+	}
 	if getBlockNumSubCmd.Parsed() {
 		cli.getBlockNum()
 	}
@@ -308,5 +358,8 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 		cli.getBalance(*addr2QueryBalance)
+	}
+	if rebuildUTXOSubCmd.Parsed() {
+		cli.rebuildUTXO()
 	}
 }
