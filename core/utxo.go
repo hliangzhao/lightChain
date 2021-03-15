@@ -145,7 +145,7 @@ func (utxoSet UTXOSet) Rebuild() {
 				if err != nil {
 					log.Panic(err)
 				}
-				err = bucket.Put(key, txOutputs.Serialize())
+				err = bucket.Put(key, txOutputs.SerializeOutputs())
 				if err != nil {
 					log.Panic(err)
 				}
@@ -187,7 +187,7 @@ func (utxoSet UTXOSet) Update(block *Block) {
 							}
 						} else {
 							// otherwise, just update k-v pair
-							err := bucket.Put(vin.TxId, updatedOutputs.Serialize())
+							err := bucket.Put(vin.TxId, updatedOutputs.SerializeOutputs())
 							if err != nil {
 								log.Panic(err)
 							}
@@ -201,7 +201,7 @@ func (utxoSet UTXOSet) Update(block *Block) {
 					newOutputs.Outputs = append(newOutputs.Outputs, out)
 				}
 
-				err := bucket.Put(tx.Id, newOutputs.Serialize())
+				err := bucket.Put(tx.Id, newOutputs.SerializeOutputs())
 				if err != nil {
 					log.Panic(err)
 				}

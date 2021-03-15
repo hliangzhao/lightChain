@@ -38,6 +38,6 @@ profile.cov
 .vscode
 
 # project specific files
-lightChain.db
+db/lightChain*.db
 wallets.dat
 addresses.dat

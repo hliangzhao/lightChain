@@ -22,9 +22,9 @@ import (
 	`log`
 )
 
-// TODO: use this function to replace all the Serialize() operations.
-// Serialize returns the encoded bytes for the input e.
-func Serialize(e interface{}) []byte {
+// TODO: use this function to replace all the SerializeTx() operations.
+// GobEncode returns the encoded bytes for the input e.
+func GobEncode(e interface{}) []byte {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
@@ -37,8 +37,8 @@ func Serialize(e interface{}) []byte {
 }
 
 // TODO: use this function to replace all the Deserialize() operations. May use type assertion!
-// Deserialize returns the decoded data to e.
-func Deserialize(encodedData []byte) interface{} {
+// GobDecode returns the decoded data to e.
+func GobDecode(encodedData []byte) interface{} {
 	var e interface{}
 	decoder := gob.NewDecoder(bytes.NewReader(encodedData))
 

@@ -115,8 +115,8 @@ type TxOutputs struct {
 	Outputs []TxOutput
 }
 
-// Serialize returns encoded bytes for the input txOutputs.
-func (txOutputs TxOutputs) Serialize() []byte {
+// SerializeOutputs returns encoded bytes for the input txOutputs.
+func (txOutputs TxOutputs) SerializeOutputs() []byte {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
@@ -157,6 +157,7 @@ func NewCoinbaseTx(dstAddr, data string) *Transaction {
 	}
 	// txIn is from nowhere, thus its PubKey is set by data
 	txIn := TxInput{[]byte{}, -1, nil, []byte(data)}
+	// TODO: decrease coinbase reward before construct the coinbaseTx.
 	txOut := NewTxOutput(coinbaseReward, dstAddr)
 	tx := Transaction{nil, []TxInput{txIn}, []TxOutput{*txOut}}
 	tx.Id = tx.Hashing()
@@ -309,18 +310,18 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 	return true
 }
 
-// TODO: it seems like there is no need to copy tx for Serialize.
+// TODO: it seems like there is no need to copy tx for SerializeTx.
 // Hashing returns the hashing result of input tx, which is used to set its Id.
 func (tx *Transaction) Hashing() []byte {
 	var hash [32]byte
 	copiedTx := *tx
 	copiedTx.Id = []byte{}
-	hash = sha256.Sum256(copiedTx.Serialize())
+	hash = sha256.Sum256(copiedTx.SerializeTx())
 	return hash[:]
 }
 
-// Serialize converts the content of tx into a serialized byte slice.
-func (tx Transaction) Serialize() []byte {
+// SerializeTx converts the content of tx into a serialized byte slice.
+func (tx Transaction) SerializeTx() []byte {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
