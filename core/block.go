@@ -30,14 +30,13 @@ type Block struct {
 	PrevBlockHash []byte
 	Hash          []byte
 	Nonce         int
-	Height        int
+	Height        int // the position of this block in main chain (the genesis block has Height 0)
 
 	// block body (a collection of transactions)
 	Transactions []*Transaction
 }
 
-// NewBlock generates a new block with slice of Transaction and previous block hash.
-// Miners need to run the Run function while validators need to run the Validate function.
+// NewBlock generates a new block with slice of Transaction and previous block's hash.
 func NewBlock(txs []*Transaction, prevBlockHash []byte, height int) *Block {
 	var block = &Block{
 		TimeStamp:     time.Now().Unix(),

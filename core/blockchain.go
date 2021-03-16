@@ -30,25 +30,24 @@ import (
 	`time`
 )
 
-// TODO: the db file path should be outside the project root path (for example, /var/db/).
-/* I use the key-value database boltdb to save lightChain. Here the key is each block' hash, and the corresponding
-value is the serialized data bytes of the block. */
+// the db file path should be outside the project root path (for example, /var/db/).
+
 const (
-	dbFile       = "./db/lightChain_%s.db"
-	blocksBucket = "Blocks"
+	dbFile       = "./db/lightChain_%s.db" // A key-value db created by boltdb. The key is block hash, the value is block body.
+	blocksBucket = "Blocks"                // The db has two buckets. One is blocksBucket (for blocks), another is utxoBucket (for UTXO).
 )
 
 var genesisCoinbaseData = fmt.Sprintf("The genesis block of lightChain is created at %v", time.Now().Local())
 
-// BlockChain is a list linked by hash pointers. Thus this data structure only saves the newest
-// block hash and the pointer to the local db file.
+// BlockChain is a list of Block linked by hash pointers. It only saves the newest block hash and the pointer
+// to the local db file.
 type BlockChain struct {
 	Tip []byte   // the newest block' hash
 	Db  *bolt.DB // the pointer-to-db where the chain stored
 }
 
-// CreateBlockChain creates the first lightChain across the whole network. The owner of nodeId does this creation.
-// addr is its wallet address to receive the coinbase reward.
+// CreateBlockChain creates the lightChain across the whole network. The node whose Id is nodeId (actually network.CentralNode)
+// does this creation. addr is its wallet address to receive the coinbase reward.
 func CreateBlockChain(addr, nodeId string) *BlockChain {
 	dbFile := fmt.Sprintf(dbFile, nodeId)
 	if ok, _ := utils.FileExists(dbFile); ok {
@@ -80,7 +79,7 @@ func CreateBlockChain(addr, nodeId string) *BlockChain {
 				log.Panic(err)
 			}
 
-			// the key []byte("l") always points to the last block' hash
+			// the key []byte("l") always points to the newest block' hash
 			err = bucket.Put([]byte("l"), genesisBlock.Hash)
 			if err != nil {
 				log.Panic(err)
@@ -96,8 +95,9 @@ func CreateBlockChain(addr, nodeId string) *BlockChain {
 	return &BlockChain{tip, db}
 }
 
-// NewBlockChain requests lightChain from the whole network for the owner of nodeId and create a local boltdb to save it.
-// It returns a pointer to local copied BlockChain.
+// NewBlockChain requests lightChain from the whole network for the owner of nodeId and create a local db to save it.
+// It returns a pointer to local copied BlockChain. Before calling this function, the node with nodeId should have
+// already copied the chain to its local storage.
 func NewBlockChain(nodeId string) *BlockChain {
 	dbFile := fmt.Sprintf(dbFile, nodeId)
 	if ok, _ := utils.FileExists(dbFile); !ok {
@@ -146,9 +146,7 @@ func (chain *BlockChain) AddBlock(block *Block) {
 			lastHash := bucket.Get([]byte("l"))
 			lastBlockData := bucket.Get(lastHash)
 			lastBlock := DeserializeBlock(lastBlockData)
-
-			// TODO: when if-not-condition happen?
-			if block.Height > lastBlock.Height {
+			if block.Height > lastBlock.Height { // TODO: can the if-not-condition happen?
 				err = bucket.Put([]byte("l"), block.Hash)
 				if err != nil {
 					log.Panic(err)
@@ -163,7 +161,9 @@ func (chain *BlockChain) AddBlock(block *Block) {
 	}
 }
 
-// GetChainHeight returns the height of current chain. The height is stored in the newest block's header.
+// TODO: the following teo functions may have different results under some scenarios.
+
+// GetChainHeight returns the most recent block's height of chain.
 func (chain *BlockChain) GetChainHeight() int {
 	var lastBlock *Block
 	err := chain.Db.View(
@@ -180,6 +180,42 @@ func (chain *BlockChain) GetChainHeight() int {
 	}
 
 	return lastBlock.Height
+}
+
+// GetBlocksNum returns the number of blocks in current BlockChain.
+func (chain *BlockChain) GetBlocksNum() int {
+	iter := chain.Iterator()
+	numBlocks := 0
+	for {
+		block := iter.Next()
+		numBlocks++
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
+	return numBlocks
+}
+
+// GetTx returns the specific Transaction denoted by blockIdx and txIdx.
+func (chain *BlockChain) GetTx(blockIdx, txIdx int) (*Transaction, error) {
+	iter := chain.Iterator()
+	numIdx := 0
+	for {
+		block := iter.Next()
+		numIdx++
+		if numIdx == blockIdx {
+			return block.Transactions[txIdx], nil
+		}
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
+	return nil, errors.New("transaction not found")
+}
+
+// decCoinbaseReward decreases the coinbase reward every 2016 blocks.
+func (chain *BlockChain) decCoinbaseReward() {
+	coinbaseReward = coinbaseReward / math.Pow(2.0, float64(chain.GetChainHeight()/2016))
 }
 
 // GetBlock returns the pointer to the block whose hash is blockHash.
@@ -203,7 +239,8 @@ func (chain *BlockChain) GetBlock(blockHash []byte) (*Block, error) {
 	return block, nil
 }
 
-func (chain *BlockChain) GetAllBlocksHash() [][]byte {
+// GetAllBlocksHashes returns a slice of hashes, each for a block.
+func (chain *BlockChain) GetAllBlocksHashes() [][]byte {
 	var allHashes [][]byte
 	iter := chain.Iterator()
 
@@ -219,9 +256,9 @@ func (chain *BlockChain) GetAllBlocksHash() [][]byte {
 	return allHashes
 }
 
-// MineBlock appends a new block to the blockchain through mining. Each new block is mined through PoW and
-// the key-value pair (block hash, serialized block data) will be stored into the db. Before mining, each
-// transaction packed in the block should be legal.
+// MineBlock appends a new block where txs are packed to chain through mining. Each new block is mined through PoW and
+// the key-value pair (block hash, serialized block data) will be stored into the db. Before mining, each transaction
+// packed in the block should be legal.
 func (chain *BlockChain) MineBlock(txs []*Transaction) *Block {
 	// verify all tx in txs
 	for _, tx := range txs {
@@ -273,7 +310,7 @@ func (chain *BlockChain) MineBlock(txs []*Transaction) *Block {
 	return newBlock
 }
 
-// FindTx returns a Transaction according to the Transaction Id txId provided.
+// FindTx returns a Transaction according to the Transaction Id, i.e. txId.
 func (chain *BlockChain) FindTx(txId []byte) (Transaction, error) {
 	iter := chain.Iterator()
 	for {
@@ -292,7 +329,7 @@ func (chain *BlockChain) FindTx(txId []byte) (Transaction, error) {
 	return Transaction{}, errors.New("transaction not found")
 }
 
-// FindUTXO returns all the unspent outputs and the Transaction's Id they are packed in.
+// FindUTXO returns all the unspent outputs (a map: {key: txId, value: unspent outputs in this tx}).
 func (chain *BlockChain) FindUTXO() map[string]TxOutputs {
 	utxo := make(map[string]TxOutputs)
 	spentTxOutputs := make(map[string][]int)
@@ -396,41 +433,4 @@ func (iter *IterOnChain) Next() *Block {
 
 	iter.curBlockHash = block.PrevBlockHash
 	return block
-}
-
-// TODO: this function can be rewrite with height.
-// GetBlocksNum returns the number of blocks in current BlockChain.
-func (chain *BlockChain) GetBlocksNum() int64 {
-	iter := chain.Iterator()
-	var numBlocks int64 = 0
-	for {
-		block := iter.Next()
-		numBlocks++
-		if len(block.PrevBlockHash) == 0 {
-			break
-		}
-	}
-	return numBlocks
-}
-
-// GetTx returns the specific Transaction denoted by blockIdx and txIdx.
-func (chain *BlockChain) GetTx(blockIdx, txIdx int64) (*Transaction, error) {
-	iter := chain.Iterator()
-	var numIdx int64 = 0
-	for {
-		block := iter.Next()
-		numIdx++
-		if numIdx == blockIdx {
-			return block.Transactions[txIdx], nil
-		}
-		if len(block.PrevBlockHash) == 0 {
-			break
-		}
-	}
-	return nil, errors.New("transaction not found")
-}
-
-// decCoinbaseReward decreases the coinbase reward every 2016 blocks.
-func (chain *BlockChain) decCoinbaseReward() {
-	coinbaseReward = coinbaseReward / math.Pow(2.0, float64(chain.GetBlocksNum()/2016))
 }

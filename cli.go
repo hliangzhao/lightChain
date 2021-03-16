@@ -20,6 +20,7 @@ import (
 	`flag`
 	`fmt`
 	`lightChain/core`
+	`lightChain/network`
 	`lightChain/utils`
 	`log`
 	`os`
@@ -29,18 +30,20 @@ import (
 // CLI is the command line interface for lightChain.
 type CLI struct{}
 
+// the "addr" below means wallet address!
+
 const usage = `Usage:
-	createchain -addr ADDR                        --- Create lightChain and send coinbase reward of genesis block to ADDR
-	createwallet                                  --- Generate a new wallet (public-private key pair) and save it into file
-	listaddr                                      --- List all addresses saved in the wallet file
-	printchain                                    --- Print all the blocks in lightChain
-	printtx -b BLOCK_IDX -tx TX_IDX               --- Print the the TX_IDX-th transaction of the BLOCK_IDX-th block
-	printalltxs                                   --- Print all transactions in every block of current lightChain
-	getblocknum                                   --- Print the number of blocks in lightChain
-	send -src ADDR1 -dst ADDR2 -amount AMT -mine  --- Send AMT of coins from ADDR1 to ADDR2, mine on the same if -mine is set
-	getbalance -addr ADDR                         --- Get the balance of ADDR
-	rebuildutxo                                   --- Rebuild the UTXO
-	startnode -miner ADDR                         --- Add a new node to lightChain network with Node Id specified in NODE_ID environment variable. Enable mining if -miner set`
+	createchain -addr ADDR                          --- Create lightChain and send coinbase reward of genesis block to ADDR
+	createwallet                                      --- Generate a new wallet (public-private key pair) and save it into file
+	listaddr                                          --- List all addresses saved in local wallet file
+	printchain                                        --- Print all the blocks in local lightChain
+	printtx -b BLOCK_IDX -tx TX_IDX                   --- Print the the TX_IDX-th transaction of the BLOCK_IDX-th block of local lightChain
+	printalltxs                                       --- Print all transactions in every block of local lightChain
+	getblocknum                                       --- Print the number of blocks in local lightChain
+	send -src ADDR1 -dst ADDR2 -amount AMT -mine  --- Send AMT of coins from ADDR1 to ADDR2, mine on the same node if -mine is set
+	getbalance -addr ADDR                           --- Get the balance of ADDR
+	rebuildutxo                                       --- Rebuild the UTXO
+	startnode -miner ADDR                           --- Add a new node to lightChain network with Node Id specified in NODE_ID environment variable. Enable mining if -miner set`
 
 // printUsage prints the usage of the cli.
 func (cli *CLI) printUsage() {
@@ -94,8 +97,8 @@ func (cli *CLI) printChain(nodeId string) {
 }
 
 // printTx prints the required Transaction's details. Note blockIdx is relative to the newest block (from the newest to the oldest).
-func (cli *CLI) printTx(blockIdx, txIdx int64) {
-	chain := core.NewBlockChain()
+func (cli *CLI) printTx(nodeId string, blockIdx, txIdx int) {
+	chain := core.NewBlockChain(nodeId)
 	defer func() {
 		err := chain.Db.Close()
 		if err != nil {
@@ -109,13 +112,36 @@ func (cli *CLI) printTx(blockIdx, txIdx int64) {
 	fmt.Println(tx)
 }
 
-func (cli *CLI) printAllTxs() {
-	// TODO: add codes.
+// printAllTxs prints all Transaction's details for all blocks in current lightChain. The print is form the most
+// recent block to the genesis block.
+func (cli *CLI) printAllTxs(nodeId string) {
+	chain := core.NewBlockChain(nodeId)
+	defer func() {
+		err := chain.Db.Close()
+		if err != nil {
+			log.Panic(err)
+		}
+	}()
+
+	blockIdx := chain.GetBlocksNum() - 1
+	iter := chain.Iterator()
+	for {
+		fmt.Printf("== Block #%d ==", blockIdx)
+		block := iter.Next()
+		for txIdx := range block.Transactions {
+			cli.printTx(nodeId, blockIdx, txIdx)
+		}
+		blockIdx--
+
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
 }
 
-// getBlockNum returns the number of blocks in lightChain.
-func (cli *CLI) getBlockNum() {
-	chain := core.NewBlockChain()
+// getBlockNum returns #blocks in lightChain.
+func (cli *CLI) getBlockNum(nodeId string) {
+	chain := core.NewBlockChain(nodeId)
 	defer func() {
 		err := chain.Db.Close()
 		if err != nil {
@@ -202,7 +228,7 @@ func (cli *CLI) send(srcAddr, dstAddr string, amount float64, nodeId string, min
 		newBlock := chain.MineBlock(txs)
 		utxoSet.Update(newBlock)
 	} else {
-		core.FloodTx(knownNodes[0], tx)
+		network.SendTx(network.CentralNode, tx)
 	}
 
 	fmt.Printf("Success!\n\n")
@@ -252,7 +278,7 @@ func (cli *CLI) startNode(nodeId, nodeMinerAddr string) {
 			log.Panic("Miner address is illegal!")
 		}
 	}
-	core.StartServer(nodeId, nodeMinerAddr)
+	network.StartNode(nodeId, nodeMinerAddr)
 }
 
 func (cli *CLI) Run() {
@@ -266,7 +292,7 @@ func (cli *CLI) Run() {
 
 	// define flag set
 	createChainSubCmd := flag.NewFlagSet("createchain", flag.ExitOnError)
-	addr2GetReward := createChainSubCmd.String("addr", "", "The address to get the coinbase reward of the genesis block")
+	addr2GetReward := createChainSubCmd.String("addr", "", "The wallet address to get the coinbase reward of the genesis block")
 
 	createWalletSubCmd := flag.NewFlagSet("createwallet", flag.ExitOnError)
 
@@ -277,8 +303,8 @@ func (cli *CLI) Run() {
 	printChainSubCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 
 	printTxSubCmd := flag.NewFlagSet("printtx", flag.ExitOnError)
-	blockIdx := printTxSubCmd.Int64("b", 0, "The block index since the newest block (starts from 0)")
-	txIdx := printTxSubCmd.Int64("tx", 0, "The transaction index (starts from 0)")
+	blockIdx := printTxSubCmd.Int("b", 0, "The block index since the newest block (starts from 0)")
+	txIdx := printTxSubCmd.Int("tx", 0, "The transaction index (starts from 0)")
 
 	printAllTxsSubCmd := flag.NewFlagSet("printalltxs", flag.ExitOnError)
 
@@ -375,19 +401,18 @@ func (cli *CLI) Run() {
 	if printChainSubCmd.Parsed() {
 		cli.printChain(nodeId)
 	}
-	// TODO: the following cmd should be executed on a full node.
 	if printTxSubCmd.Parsed() {
 		if blockIdx == nil || txIdx == nil {
 			printTxSubCmd.Usage()
 			os.Exit(1)
 		}
-		cli.printTx(*blockIdx, *txIdx)
+		cli.printTx(nodeId, *blockIdx, *txIdx)
 	}
 	if printAllTxsSubCmd.Parsed() {
-		cli.printAllTxs()
+		cli.printAllTxs(nodeId)
 	}
 	if getBlockNumSubCmd.Parsed() {
-		cli.getBlockNum()
+		cli.getBlockNum(nodeId)
 	}
 	if sendSubCmd.Parsed() {
 		if *sendFrom == "" || *sendTo == "" || *sendAmt <= 0 {

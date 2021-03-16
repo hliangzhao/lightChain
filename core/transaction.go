@@ -174,19 +174,10 @@ func (tx *Transaction) IsCoinbaseTx() bool {
 // firstly, we need to find the wallet of sender according to srcAddr; then, we need to check whether this
 // wallet has enough coins to support this tx. If yes, construct Vin (with src wallet's PubKey) and Vout.
 // Finally, sign this tx with src wallet's private key.
-func NewUTXOTx(srcAddr, dstAddr string, amount float64, utxoSet *UTXOSet) *Transaction {
+func NewUTXOTx(senderWallet *Wallet, dstAddr string, amount float64, utxoSet *UTXOSet) *Transaction {
 	var vin []TxInput
 	var vout []TxOutput
 
-	// get the sender's wallet's pubKeyHash
-	wallets, err := NewWallets()
-	if err != nil {
-		log.Panic(err)
-	}
-	senderWallet, err := wallets.GetWallet(srcAddr)
-	if err != nil {
-		log.Panic(err)
-	}
 	pubKeyHash := HashingPubKey(senderWallet.PubKey)
 
 	// find enough unspent outputs to support this tx
@@ -208,6 +199,7 @@ func NewUTXOTx(srcAddr, dstAddr string, amount float64, utxoSet *UTXOSet) *Trans
 	if accumulated > amount {
 		// generate the change transaction
 		// TODO: support new addr generation.
+		srcAddr := fmt.Sprintf("%s", senderWallet.GetAddr())
 		vout = append(vout, *NewTxOutput(accumulated-amount, srcAddr))
 	}
 
@@ -331,4 +323,17 @@ func (tx Transaction) SerializeTx() []byte {
 	}
 
 	return buf.Bytes()
+}
+
+// DeserializeTx converts a serialized byte slice into a Transaction instance.
+func DeserializeTx(data []byte) Transaction {
+	var tx Transaction
+
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	err := decoder.Decode(&tx)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return tx
 }
