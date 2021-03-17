@@ -22,6 +22,7 @@ import (
 	`log`
 )
 
+// The bucket for store utxo. Key: TxId, Value: Unspent outputs in that tx.
 const utxoBucket = "ChainState"
 
 type UTXOSet struct {
@@ -41,6 +42,7 @@ func (utxoSet UTXOSet) FindSpendableOutputs(pubKeyHash []byte, amount float64) (
 			bucket := tx.Bucket([]byte(utxoBucket))
 			cursor := bucket.Cursor()
 
+			// iteration over all k-v pairs
 			for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
 				txId := hex.EncodeToString(key)
 				txOutputs := DeserializeOutputs(value)
@@ -61,10 +63,9 @@ func (utxoSet UTXOSet) FindSpendableOutputs(pubKeyHash []byte, amount float64) (
 	return accumulated, unspentOutputs
 }
 
-// TODO: the return value can be replaced by TxOutputs.
 // FindUTXO returns the UTXO for the owner of pubKeyHash.
 func (utxoSet UTXOSet) FindUTXO(pubKeyHash []byte) []TxOutput {
-	var ret []TxOutput
+	var utxo []TxOutput
 	db := utxoSet.BlockChain.Db
 
 	err := db.View(
@@ -77,7 +78,7 @@ func (utxoSet UTXOSet) FindUTXO(pubKeyHash []byte) []TxOutput {
 
 				for _, txOutput := range txOutputs.Outputs {
 					if txOutput.IsLockedWithKey(pubKeyHash) {
-						ret = append(ret, txOutput)
+						utxo = append(utxo, txOutput)
 					}
 				}
 			}
@@ -87,7 +88,7 @@ func (utxoSet UTXOSet) FindUTXO(pubKeyHash []byte) []TxOutput {
 		log.Panic(err)
 	}
 
-	return ret
+	return utxo
 }
 
 // CountTxs returns the number of Transaction in the UTXO set of current lightChain.
@@ -145,7 +146,7 @@ func (utxoSet UTXOSet) Rebuild() {
 				if err != nil {
 					log.Panic(err)
 				}
-				err = bucket.Put(key, txOutputs.Serialize())
+				err = bucket.Put(key, txOutputs.SerializeOutputs())
 				if err != nil {
 					log.Panic(err)
 				}
@@ -187,7 +188,7 @@ func (utxoSet UTXOSet) Update(block *Block) {
 							}
 						} else {
 							// otherwise, just update k-v pair
-							err := bucket.Put(vin.TxId, updatedOutputs.Serialize())
+							err := bucket.Put(vin.TxId, updatedOutputs.SerializeOutputs())
 							if err != nil {
 								log.Panic(err)
 							}
@@ -201,7 +202,7 @@ func (utxoSet UTXOSet) Update(block *Block) {
 					newOutputs.Outputs = append(newOutputs.Outputs, out)
 				}
 
-				err := bucket.Put(tx.Id, newOutputs.Serialize())
+				err := bucket.Put(tx.Id, newOutputs.SerializeOutputs())
 				if err != nil {
 					log.Panic(err)
 				}

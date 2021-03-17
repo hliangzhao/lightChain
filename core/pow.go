@@ -25,10 +25,14 @@ import (
 	`math/big`
 )
 
-// number of 0 bits at the beginning of the hash for PoW, tuned for changing difficulty
-const targetBits = 4 // larger this number, more difficult the mining
-// the trial of nonce ranging from 0 to maxNonce
-const maxNonce = math.MaxInt64
+const (
+	// Number of 0 bits at the beginning of the hash for PoW, tuned for changing difficulty of mining.
+	// Larger this number, more difficult the mining.
+	targetBits = 4
+
+	// The trial (ranging from 0 to maxNonce) upper bound of nonce.
+	maxNonce = math.MaxInt64
+)
 
 type ProofOfWork struct {
 	block  *Block

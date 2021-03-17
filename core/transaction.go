@@ -67,7 +67,7 @@ func (tx Transaction) String() string {
 // Wherein, TxId is the Id of some previous Transaction, at least one output of which is pointed by current Transaction's some input.
 // VoutIdx is the index of the pointed output of the previous Transaction.
 // Signature is the data bytes signed with sender's private key.
-// PubKey is the public key of sender.  // TODO: or pubKeyHash?
+// PubKey is the public key of sender.
 type TxInput struct {
 	TxId      []byte
 	VoutIdx   int
@@ -85,7 +85,7 @@ func (txInput *TxInput) UseKey(pubKeyHash []byte) bool {
 
 // TxOutput includes all information required for the output of a Transaction: Value and PubKeyHash.
 // Wherein, Value is the quantity of the coin LIG involved in the corresponding tx.
-// PubKeyHash is the base58 encoding of the address of the receiver, which is a lock with the receiver's address.
+// PubKeyHash is the address of the receiver (obtained by the base58 encoding of the public key).
 type TxOutput struct {
 	Value      float64
 	PubKeyHash []byte
@@ -115,8 +115,8 @@ type TxOutputs struct {
 	Outputs []TxOutput
 }
 
-// Serialize returns encoded bytes for the input txOutputs.
-func (txOutputs TxOutputs) Serialize() []byte {
+// SerializeOutputs returns encoded bytes for the input txOutputs.
+func (txOutputs TxOutputs) SerializeOutputs() []byte {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
@@ -126,6 +126,7 @@ func (txOutputs TxOutputs) Serialize() []byte {
 	}
 
 	return buf.Bytes()
+	// return utils.GobEncode(txOutputs)
 }
 
 // DeserializeOutputs returns a TxOutputs instance decoded from the serialized data encodedData.
@@ -147,7 +148,7 @@ func DeserializeOutputs(encodedData []byte) TxOutputs {
 // this creation (also the address to accept reward).
 func NewCoinbaseTx(dstAddr, data string) *Transaction {
 	if data == "" {
-		// TODO: in bitcoin, these data are used to sample nonce.
+		// In bitcoin, these data are used to calculate nonce. But we just randomly sample chars in the simplified case.
 		randData := make([]byte, 20)
 		_, err := rand.Read(randData)
 		if err != nil {
@@ -173,19 +174,10 @@ func (tx *Transaction) IsCoinbaseTx() bool {
 // firstly, we need to find the wallet of sender according to srcAddr; then, we need to check whether this
 // wallet has enough coins to support this tx. If yes, construct Vin (with src wallet's PubKey) and Vout.
 // Finally, sign this tx with src wallet's private key.
-func NewUTXOTx(srcAddr, dstAddr string, amount float64, utxoSet *UTXOSet) *Transaction {
+func NewUTXOTx(senderWallet *Wallet, dstAddr string, amount float64, utxoSet *UTXOSet) *Transaction {
 	var vin []TxInput
 	var vout []TxOutput
 
-	// get the sender's wallet's pubKeyHash
-	wallets, err := NewWallets()
-	if err != nil {
-		log.Panic(err)
-	}
-	senderWallet, err := wallets.GetWallet(srcAddr)
-	if err != nil {
-		log.Panic(err)
-	}
 	pubKeyHash := HashingPubKey(senderWallet.PubKey)
 
 	// find enough unspent outputs to support this tx
@@ -207,6 +199,7 @@ func NewUTXOTx(srcAddr, dstAddr string, amount float64, utxoSet *UTXOSet) *Trans
 	if accumulated > amount {
 		// generate the change transaction
 		// TODO: support new addr generation.
+		srcAddr := fmt.Sprintf("%s", senderWallet.GetAddr())
 		vout = append(vout, *NewTxOutput(accumulated-amount, srcAddr))
 	}
 
@@ -218,7 +211,8 @@ func NewUTXOTx(srcAddr, dstAddr string, amount float64, utxoSet *UTXOSet) *Trans
 	return &tx
 }
 
-// Sign signs each input of the Transaction tx.
+// Sign signs each input of the Transaction tx with the sender wallet's private key (set the Signature segment of
+// each txInput in tx.Vin).
 func (tx *Transaction) Sign(privateKey ecdsa.PrivateKey, prevTxs map[string]Transaction) {
 	if tx.IsCoinbaseTx() {
 		return
@@ -234,17 +228,19 @@ func (tx *Transaction) Sign(privateKey ecdsa.PrivateKey, prevTxs map[string]Tran
 	for txInputIdx, txInput := range copiedTx.Vin {
 		prevTx := prevTxs[hex.EncodeToString(txInput.TxId)]
 		copiedTx.Vin[txInputIdx].Signature = nil
-		// TODO: the following line is not fully understood.
+		// the pubKeyHash plays the role of hash pointer
 		copiedTx.Vin[txInputIdx].PubKey = prevTx.Vout[txInput.VoutIdx].PubKeyHash
-		copiedTx.Id = copiedTx.Hashing()
-		copiedTx.Vin[txInputIdx].PubKey = nil
 
-		r, s, err := ecdsa.Sign(rand.Reader, &privateKey, copiedTx.Id)
+		// call the copiedTx.String() in default
+		txData2Sign := fmt.Sprintf("%x\n", copiedTx)
+		r, s, err := ecdsa.Sign(rand.Reader, &privateKey, []byte(txData2Sign))
 		if err != nil {
 			log.Panic(err)
 		}
 		signature := append(r.Bytes(), s.Bytes()...)
+
 		tx.Vin[txInputIdx].Signature = signature
+		copiedTx.Vin[txInputIdx].PubKey = nil
 	}
 }
 
@@ -258,7 +254,7 @@ func (tx *Transaction) Copy() Transaction {
 			TxId:      txInput.TxId,
 			VoutIdx:   txInput.VoutIdx,
 			Signature: nil,
-			PubKey:    nil,
+			PubKey:    nil, // copiedTx.Vin[:].PubKey will be set as tx.Vin[:].PubKeyHash
 		})
 	}
 	for _, txOutput := range tx.Vout {
@@ -289,8 +285,6 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 		prevTx := prevTxs[hex.EncodeToString(txInput.TxId)]
 		copiedTx.Vin[txInputIdx].Signature = nil
 		copiedTx.Vin[txInputIdx].PubKey = prevTx.Vout[txInput.VoutIdx].PubKeyHash
-		copiedTx.Id = copiedTx.Hashing()
-		copiedTx.Vin[txInputIdx].PubKey = nil
 
 		x, y := big.Int{}, big.Int{}
 		keyLength := len(txInput.PubKey)
@@ -302,25 +296,26 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 		r.SetBytes(txInput.Signature[:(sigLength / 2)])
 		s.SetBytes(txInput.Signature[(sigLength / 2):])
 
-		if ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}, copiedTx.Id, &r, &s) == false {
+		data2Verify := fmt.Sprintf("%x\n", copiedTx)
+		if ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}, []byte(data2Verify), &r, &s) == false {
 			return false
 		}
+		copiedTx.Vin[txInputIdx].PubKey = nil
 	}
 	return true
 }
 
-// TODO: it seems like there is no need to copy tx for Serialize.
 // Hashing returns the hashing result of input tx, which is used to set its Id.
 func (tx *Transaction) Hashing() []byte {
 	var hash [32]byte
 	copiedTx := *tx
 	copiedTx.Id = []byte{}
-	hash = sha256.Sum256(copiedTx.Serialize())
+	hash = sha256.Sum256(copiedTx.SerializeTx())
 	return hash[:]
 }
 
-// Serialize converts the content of tx into a serialized byte slice.
-func (tx Transaction) Serialize() []byte {
+// SerializeTx converts the content of tx into a serialized byte slice.
+func (tx Transaction) SerializeTx() []byte {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
@@ -330,4 +325,20 @@ func (tx Transaction) Serialize() []byte {
 	}
 
 	return buf.Bytes()
+	// return utils.GobEncode(tx)
+}
+
+// DeserializeTx converts a serialized byte slice into a Transaction instance.
+func DeserializeTx(data []byte) Transaction {
+	// TODO: how to convert between tx and interface{}?
+	// e := utils.GobDecode(data)
+	var tx Transaction
+
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	err := decoder.Decode(&tx)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return tx
 }

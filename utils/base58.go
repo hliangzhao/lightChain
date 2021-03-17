@@ -25,7 +25,7 @@ import (
 var alphabet = []byte("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 var length = int64(len(alphabet)) // 58
 
-// Base58Encoding returns the base58 encoding result for input.
+// Base58Encoding returns the base58 encoding result for input byte slice.
 func Base58Encoding(input []byte) []byte {
 	var encoded []byte
 	x := big.NewInt(0).SetBytes(input)
@@ -39,7 +39,8 @@ func Base58Encoding(input []byte) []byte {
 		encoded = append(encoded, alphabet[mod.Int64()])
 	}
 	ReverseBytes(encoded)
-	// all the zero bytes at the beginning of input are encoded as alphabet[0]
+	// all the zero bytes of input are encoded as alphabet[0] and put at the beginning
+	// NOTE: 0x00 should only appear as leading bytes of input
 	for b := range input {
 		if b == 0x00 {
 			encoded = append([]byte{alphabet[0]}, encoded...)
@@ -49,7 +50,7 @@ func Base58Encoding(input []byte) []byte {
 	return encoded
 }
 
-// Base58Decoding returns the decoding result from the base58 encoded input.
+// Base58Decoding returns the decoded byte slice from the base58 encoded input.
 func Base58Decoding(input []byte) []byte {
 	tmp := big.NewInt(0)
 	zeroBytes := 0

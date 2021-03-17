@@ -30,19 +30,20 @@ type Block struct {
 	PrevBlockHash []byte
 	Hash          []byte
 	Nonce         int
+	Height        int // the position of this block in main chain (the genesis block has Height 0)
 
 	// block body (a collection of transactions)
 	Transactions []*Transaction
 }
 
-// NewBlock generates a new block with slice of Transaction and previous block hash.
-// Miners need to run the Run function while validators need to run the Validate function.
-func NewBlock(txs []*Transaction, prevBlockHash []byte) *Block {
+// NewBlock generates a new block with slice of Transaction and previous block's hash.
+func NewBlock(txs []*Transaction, prevBlockHash []byte, height int) *Block {
 	var block = &Block{
 		TimeStamp:     time.Now().Unix(),
 		PrevBlockHash: prevBlockHash,
 		Hash:          []byte{},
 		Nonce:         0,
+		Height:        height,
 		Transactions:  txs}
 
 	pow := NewPoW(block)
@@ -56,11 +57,11 @@ func NewBlock(txs []*Transaction, prevBlockHash []byte) *Block {
 // NewGenesisBlock generates the very first block of the chain with only one Transaction,
 // i.e. the coinbase transaction.
 func NewGenesisBlock(coinbaseTx *Transaction) *Block {
-	return NewBlock([]*Transaction{coinbaseTx}, []byte{})
+	return NewBlock([]*Transaction{coinbaseTx}, []byte{}, 0)
 }
 
-// Serialize converts the block's content into a serialized byte slice.
-func (block *Block) Serialize() []byte {
+// SerializeBlock converts the block's content into a serialized byte slice.
+func (block *Block) SerializeBlock() []byte {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
@@ -90,7 +91,7 @@ func DeserializeBlock(encodedData []byte) *Block {
 func (block *Block) HashingAllTxs() []byte {
 	var serializedTxData [][]byte
 	for _, tx := range block.Transactions {
-		serializedTxData = append(serializedTxData, tx.Serialize())
+		serializedTxData = append(serializedTxData, tx.SerializeTx())
 	}
 	merkleTree := NewMerkleTree(serializedTxData)
 	return merkleTree.RootNode.Data
