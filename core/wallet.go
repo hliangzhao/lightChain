@@ -115,10 +115,13 @@ type Wallets struct {
 func NewWallets(nodeId string) (*Wallets, error) {
 	wallets := Wallets{}
 	wallets.WalletsMap = make(map[string]*Wallet)
+
+	walletFile := fmt.Sprintf(walletFile, nodeId)
 	if ok, _ := utils.FileExists(walletFile); !ok {
 		return &wallets, nil
 	}
 	err := wallets.LoadFromFile(nodeId)
+
 	return &wallets, err
 }
 

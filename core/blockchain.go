@@ -213,8 +213,8 @@ func (chain *BlockChain) GetTx(blockIdx, txIdx int) (*Transaction, error) {
 	return nil, errors.New("transaction not found")
 }
 
-// decCoinbaseReward decreases the coinbase reward every 2016 blocks.
-func (chain *BlockChain) decCoinbaseReward() {
+// DecCoinbaseReward decreases the coinbase reward every 2016 blocks.
+func (chain *BlockChain) DecCoinbaseReward() {
 	coinbaseReward = coinbaseReward / math.Pow(2.0, float64(chain.GetChainHeight()/2016))
 }
 

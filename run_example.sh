@@ -3,9 +3,9 @@
 BIN=./build/lightChain
 
 echo "Clear environment..."
-ADDR_FILE=./addresses.dat
-DB_FILE=./lightChain.db
-WALLETS_FILE=./wallets.dat
+ADDR_FILE=./tmp/addresses.dat
+DB_FILE=db/lightChain*.db
+WALLETS_FILE=./wallets/wallets*.dat
 if [ -e $ADDR_FILE ]; then
   rm $ADDR_FILE
 fi

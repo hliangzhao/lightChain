@@ -30,20 +30,20 @@ import (
 // CLI is the command line interface for lightChain.
 type CLI struct{}
 
-// the "addr" below means wallet address!
+// the "addr" below means wallet address! We dont' really care about the IP address of nodes in the p2p overlay network.
 
 const usage = `Usage:
-	createchain -addr ADDR                          --- Create lightChain and send coinbase reward of genesis block to ADDR
-	createwallet                                      --- Generate a new wallet (public-private key pair) and save it into file
-	listaddr                                          --- List all addresses saved in local wallet file
-	printchain                                        --- Print all the blocks in local lightChain
-	printtx -b BLOCK_IDX -tx TX_IDX                   --- Print the the TX_IDX-th transaction of the BLOCK_IDX-th block of local lightChain
-	printalltxs                                       --- Print all transactions in every block of local lightChain
-	getblocknum                                       --- Print the number of blocks in local lightChain
+	createchain -addr ADDR                        --- Create lightChain and send coinbase reward of genesis block to ADDR
+	createwallet                                  --- Generate a new wallet (public-private key pair) and save it into file
+	listaddr                                      --- List all addresses saved in local wallet file
+	printchain                                    --- Print all the blocks in local lightChain
+	printtx -b BLOCK_IDX -tx TX_IDX               --- Print the the TX_IDX-th transaction of the BLOCK_IDX-th block of local lightChain
+	printalltxs                                   --- Print all transactions in every block of local lightChain
+	getblocknum                                   --- Print the number of blocks in local lightChain
 	send -src ADDR1 -dst ADDR2 -amount AMT -mine  --- Send AMT of coins from ADDR1 to ADDR2, mine on the same node if -mine is set
-	getbalance -addr ADDR                           --- Get the balance of ADDR
-	rebuildutxo                                       --- Rebuild the UTXO
-	startnode -miner ADDR                           --- Add a new node to lightChain network with Node Id specified in NODE_ID environment variable. Enable mining if -miner set`
+	getbalance -addr ADDR                         --- Get the balance of ADDR
+	rebuildutxo                                   --- Rebuild the UTXO
+	startnode -miner ADDR                         --- Add a new node to lightChain network with Node Id specified in NODE_ID environment variable. Enable mining if -miner set`
 
 // printUsage prints the usage of the cli.
 func (cli *CLI) printUsage() {
@@ -58,6 +58,7 @@ func (cli *CLI) validateArgs() {
 	}
 }
 
+// listAddrs prints the wallets' address created by node with nodeId.
 func (cli *CLI) listAddrs(nodeId string) {
 	wallets, err := core.NewWallets(nodeId)
 	if err != nil {
@@ -70,7 +71,7 @@ func (cli *CLI) listAddrs(nodeId string) {
 	fmt.Println()
 }
 
-// printChain prints all blocks of lightChain from the newest to the oldest.
+// printChain prints all blocks of local lightChain of nodeId from the newest to the oldest.
 func (cli *CLI) printChain(nodeId string) {
 	chain := core.NewBlockChain(nodeId)
 	defer func() {
@@ -81,14 +82,18 @@ func (cli *CLI) printChain(nodeId string) {
 	}()
 
 	iter := chain.Iterator()
+	numBlocks := 0
 	for {
 		block := iter.Next()
+		fmt.Printf("=== block #%d ===\n", numBlocks)
 		fmt.Printf("Timestamp: %d\n", block.TimeStamp)
 		fmt.Printf("Previous block's hash: %x\n", block.PrevBlockHash)
 		fmt.Printf("Hash: %x\n", block.Hash)
 		// new a validator with the mined block to examine the nonce
 		pow := core.NewPoW(block)
 		fmt.Printf("Proof: PoW, Validated: %s\n\n", strconv.FormatBool(pow.Validate()))
+
+		numBlocks++
 
 		if len(block.PrevBlockHash) == 0 {
 			break
@@ -151,7 +156,8 @@ func (cli *CLI) getBlockNum(nodeId string) {
 	fmt.Printf("%d\n\n", chain.GetBlocksNum())
 }
 
-// createBlockChain creates lightChain on the whole network.
+// createBlockChain creates lightChain on the whole network. The node with nodeId is the creator.
+// addr is the wallet address to receive the coinbase reward.
 func (cli *CLI) createBlockChain(addr, nodeId string) {
 	if !core.ValidateAddr(addr) {
 		log.Panic("Error: address is not valid")
@@ -169,14 +175,16 @@ func (cli *CLI) createBlockChain(addr, nodeId string) {
 	fmt.Printf("Done!\n\n")
 }
 
+// createWallet creates a new wallet and prints this wallet address. The node with nodeId is the creator.
 func (cli *CLI) createWallet(nodeId string) {
 	wallets, _ := core.NewWallets(nodeId)
 	addr := wallets.CreateWallet()
 	wallets.Save2File(nodeId)
 	fmt.Printf("The newly created address: %s\n\n", addr)
 
+	// TODO: the follow code may be useless.
 	// save addr to local file temporarily (this is for run_example.sh)
-	f, err := os.OpenFile("addresses.dat", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile("./tmp/addresses.dat", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -192,7 +200,7 @@ func (cli *CLI) createWallet(nodeId string) {
 }
 
 // send invoke a transfer transaction from srcAddr to dstAddr with certain amount. If mineNow is true, the sender node
-// will mine this block directly. Otherwise, the tx will be broadcast
+// will mine this block directly. Otherwise, the tx will be broadcasted to all known nodes.
 func (cli *CLI) send(srcAddr, dstAddr string, amount float64, nodeId string, mineNow bool) {
 	if !core.ValidateAddr(srcAddr) {
 		log.Panic("Error: srcAddr is not valid")
@@ -222,6 +230,7 @@ func (cli *CLI) send(srcAddr, dstAddr string, amount float64, nodeId string, min
 	tx := core.NewUTXOTx(&senderWallet, dstAddr, amount, &utxoSet)
 
 	if mineNow {
+		// chain.DecCoinbaseReward()
 		coinbaseTx := core.NewCoinbaseTx(srcAddr, "")
 		txs := []*core.Transaction{coinbaseTx, tx}
 
@@ -234,7 +243,7 @@ func (cli *CLI) send(srcAddr, dstAddr string, amount float64, nodeId string, min
 	fmt.Printf("Success!\n\n")
 }
 
-// getBalance prints the balance of the wallet whose address is addr.
+// getBalance prints the balance of the wallet whose address is addr. This function is called by node whose Id is nodeId.
 func (cli *CLI) getBalance(addr, nodeId string) {
 	if !core.ValidateAddr(addr) {
 		log.Panic("Error: address is not valid")
@@ -260,7 +269,8 @@ func (cli *CLI) getBalance(addr, nodeId string) {
 	fmt.Printf("The balance of '%s': %f\n\n", addr, balance)
 }
 
-// rebuildUTXO rebuilds the UTXO incrementally when lightChain changes.
+// rebuildUTXO rebuilds the UTXO incrementally when local lightChain to nodeId changes. Note that the utxoBucket in db
+// is shared by all nodes in the lightChain network.
 func (cli *CLI) rebuildUTXO(nodeId string) {
 	chain := core.NewBlockChain(nodeId)
 	utxoSet := core.UTXOSet{BlockChain: chain}
@@ -269,11 +279,13 @@ func (cli *CLI) rebuildUTXO(nodeId string) {
 	fmt.Printf("Done! %d transactions found in UTXO set.\n\n", utxoSet.CountTxs())
 }
 
+// startNode starts a new node (a new node whose IP is "localhost:nodeId" joins the lightChain network). If nodeMinerAddr
+// is not "", this node is a miner node and the address to receive mining reward is nodeMinerAddr.
 func (cli *CLI) startNode(nodeId, nodeMinerAddr string) {
 	fmt.Printf("Starting node %s...\n", nodeId)
 	if len(nodeMinerAddr) > 0 {
 		if core.ValidateAddr(nodeMinerAddr) {
-			fmt.Printf("Mining is on! The address to receive rewards: %s\n", nodeMinerAddr)
+			fmt.Printf("Mining is on. The address to receive rewards: %s\n", nodeMinerAddr)
 		} else {
 			log.Panic("Miner address is illegal!")
 		}

@@ -60,19 +60,21 @@ var KnownNodes = []string{CentralNode}
 
 // The following two vars are shared by each node
 
-// nodeAddress plays the role of "current node".
-var nodeAddress string
+// nodeIPAddress plays the role of "current node". It is set at StartNode function.
+var nodeIPAddress string
 
-// miningAddress is only set on a miner node.
-var miningAddress string
+// miningWalletAddress is only set on a miner node.
+var miningWalletAddress string
 
+// TODO: txPool is shared by all miner nodes. Will this invoke errors? Or we can only set one miner node?
 // A local pool for collecting known transactions, used for packing to a new block. Only the miner node can visit & modify this var.
 var txPool = make(map[string]core.Transaction)
 
+// TODO: blocksInTransit is shared by all nodes. Will this invoke errors?
 var blocksInTransit [][]byte
 
 /*
-The following defines the request communicated between each node. In general, request consists of two parts:
+The following defines the request communicated between nodes. In general, request consists of two parts:
 command (the first 12 bytes) and content (the left bytes).
 	- command: version, addr, inv, getblocks, getdata, block, tx
 	- content: sVersion, sAddr, sInventory, sGetBlocks, sGetData, sBlock, sTx
@@ -131,18 +133,18 @@ type sTx struct {
 // Then, the node will listen a port, waits for connection, and processes the connection. The new node' address is
 // generated with nodeId. minerAddr gives the address of wallet to receive the coinbase and mining reward.
 func StartNode(nodeId, minerAddr string) {
-	nodeAddress = fmt.Sprintf("localhost:%s", nodeId)
-	miningAddress = minerAddr
+	nodeIPAddress = fmt.Sprintf("localhost:%s", nodeId)
+	miningWalletAddress = minerAddr
 
 	// request and make a local copy of current lightChain from the whole network (actually the central node in our case)
 	chain := core.NewBlockChain(nodeId)
-	if nodeAddress != CentralNode {
+	if nodeIPAddress != CentralNode {
 		// if this node is not the central node, it should query the central node whether the blockchain it copied is outdated
 		sendVersion(CentralNode, chain)
 	}
 
 	// open for connection
-	listener, err := net.Listen(protocol, nodeAddress)
+	listener, err := net.Listen(protocol, nodeIPAddress)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -250,6 +252,13 @@ func handleAddr(request []byte) {
 	KnownNodes = append(KnownNodes, payload.AddrList...)
 	fmt.Printf("#KnownNodes: %d\n", len(KnownNodes))
 	requestBlocks()
+}
+
+// requestBlocks sends nodeIPAddress to all known nodes.
+func requestBlocks() {
+	for _, node := range KnownNodes {
+		sendGetBlocks(node)
+	}
 }
 
 // handleInv handles the received sInventory instance from the client. If the inventory is block, this server will save
@@ -390,14 +399,14 @@ func handleTx(request []byte, chain *core.BlockChain) {
 	txPool[hex.EncodeToString(tx.Id)] = tx
 
 	// CentralNode does not mining. Just broadcast this tx to every known nodes
-	if nodeAddress == CentralNode {
+	if nodeIPAddress == CentralNode {
 		for _, node := range KnownNodes {
-			if node != nodeAddress && node != payload.SenderAddr {
+			if node != nodeIPAddress && node != payload.SenderAddr {
 				sendInv(node, "tx", [][]byte{tx.Id})
 			}
 		}
 	} else {
-		if len(txPool) >= txNum4Mining && len(miningAddress) > 0 {
+		if len(txPool) >= txNum4Mining && len(miningWalletAddress) > 0 {
 		MineTxs:
 			var verifiedTxs []*core.Transaction
 			for txIdInPool := range txPool {
@@ -412,7 +421,7 @@ func handleTx(request []byte, chain *core.BlockChain) {
 				return
 			}
 
-			coinbaseTx := core.NewCoinbaseTx(miningAddress, "")
+			coinbaseTx := core.NewCoinbaseTx(miningWalletAddress, "")
 			// verifiedTxs = append([]*core.Transaction{coinbaseTx}, verifiedTxs...)
 			verifiedTxs = append(verifiedTxs, coinbaseTx)
 
@@ -429,7 +438,7 @@ func handleTx(request []byte, chain *core.BlockChain) {
 
 			// broadcast this newly mined block to all known nodes
 			for _, node := range KnownNodes {
-				if node != nodeAddress {
+				if node != nodeIPAddress {
 					sendInv(node, "block", [][]byte{newBlock.Hash})
 				}
 			}
@@ -443,22 +452,10 @@ func handleTx(request []byte, chain *core.BlockChain) {
 
 /* The following code defines the client-side functions (starts with "send") for each p2p node. */
 
-func sendAddr(dstAddr string) {
-	addrs := sAddr{
-		AddrList: KnownNodes,
-	}
-	addrs.AddrList = append(addrs.AddrList, nodeAddress)
-
-	payload := utils.GobEncode(addrs)
-	request := append(cmd2Bytes("addr"), payload...)
-
-	send(dstAddr, request)
-}
-
 // sendBlock sends block b to dstAddr.
 func sendBlock(dstAddr string, b *core.Block) {
 	block := sBlock{
-		SenderAddr: nodeAddress,
+		SenderAddr: nodeIPAddress,
 		Block:      b.SerializeBlock(),
 	}
 
@@ -468,10 +465,10 @@ func sendBlock(dstAddr string, b *core.Block) {
 	send(dstAddr, request)
 }
 
-// sendInv sends a sInventory instance constructed by nodeAddress, kind, and items to dstAddr.
+// sendInv sends a sInventory instance constructed by nodeIPAddress, kind, and items to dstAddr.
 func sendInv(dstAddr, kind string, items [][]byte) {
 	inv := sInventory{
-		SenderAddr: nodeAddress,
+		SenderAddr: nodeIPAddress,
 		Kind:       kind,
 		Items:      items,
 	}
@@ -482,10 +479,10 @@ func sendInv(dstAddr, kind string, items [][]byte) {
 	send(dstAddr, request)
 }
 
-// SendTx sends a sTx instance constructed by nodeAddress and transaction to dstAddr.
+// SendTx sends a sTx instance constructed by nodeIPAddress and transaction to dstAddr.
 func SendTx(dstAddr string, transaction *core.Transaction) {
 	tx := sTx{
-		SenderAddr:  nodeAddress,
+		SenderAddr:  nodeIPAddress,
 		Transaction: transaction.SerializeTx(),
 	}
 
@@ -495,12 +492,12 @@ func SendTx(dstAddr string, transaction *core.Transaction) {
 	send(dstAddr, request)
 }
 
-// sendVersion sends a sVersion instance constructed by chain, nodeVersion, and nodeAddress to dstAddr.
+// sendVersion sends a sVersion instance constructed by chain, nodeVersion, and nodeIPAddress to dstAddr.
 func sendVersion(dstAddr string, chain *core.BlockChain) {
 	ver := sVersion{
 		Version:    nodeVersion,
 		Height:     chain.GetChainHeight(),
-		SenderAddr: nodeAddress,
+		SenderAddr: nodeIPAddress,
 	}
 
 	payload := utils.GobEncode(ver)
@@ -509,10 +506,10 @@ func sendVersion(dstAddr string, chain *core.BlockChain) {
 	send(dstAddr, request)
 }
 
-// sendGetBlocks sends nodeAddress to dstAddr.
+// sendGetBlocks sends nodeIPAddress to dstAddr.
 func sendGetBlocks(dstAddr string) {
 	getBlocks := sGetBlocks{
-		SenderAddr: nodeAddress,
+		SenderAddr: nodeIPAddress,
 	}
 
 	payload := utils.GobEncode(getBlocks)
@@ -521,17 +518,10 @@ func sendGetBlocks(dstAddr string) {
 	send(dstAddr, request)
 }
 
-// requestBlocks sends nodeAddress to all known nodes (stored in KnownNodes).
-func requestBlocks() {
-	for _, node := range KnownNodes {
-		sendGetBlocks(node)
-	}
-}
-
 // sendGetData sends a sGetData instance to dstAddr.
 func sendGetData(dstAddr, kind string, id []byte) {
 	getData := sGetData{
-		SenderAddr: nodeAddress,
+		SenderAddr: nodeIPAddress,
 		Kind:       kind,
 		Id:         id,
 	}
