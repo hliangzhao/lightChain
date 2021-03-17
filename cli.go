@@ -128,15 +128,20 @@ func (cli *CLI) printAllTxs(nodeId string) {
 		}
 	}()
 
-	blockIdx := chain.GetBlocksNum() - 1
+	blockIdx := 0
 	iter := chain.Iterator()
 	for {
-		fmt.Printf("== Block #%d ==", blockIdx)
+		fmt.Printf("== Block #%d ==\n", blockIdx)
 		block := iter.Next()
 		for txIdx := range block.Transactions {
-			cli.printTx(nodeId, blockIdx, txIdx)
+			tx, err := chain.GetTx(blockIdx+1, txIdx)
+			if err != nil {
+				log.Panic(err)
+			}
+			fmt.Println(tx)
+			fmt.Println()
 		}
-		blockIdx--
+		blockIdx++
 
 		if len(block.PrevBlockHash) == 0 {
 			break
@@ -182,8 +187,7 @@ func (cli *CLI) createWallet(nodeId string) {
 	wallets.Save2File(nodeId)
 	fmt.Printf("The newly created address: %s\n\n", addr)
 
-	// TODO: the follow code may be useless.
-	// save addr to local file temporarily (this is for run_example.sh)
+	// save addr to local file temporarily (this is for clear.sh)
 	f, err := os.OpenFile("./tmp/addresses.dat", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Panic(err)

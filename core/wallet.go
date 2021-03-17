@@ -149,7 +149,6 @@ func (wallets *Wallets) LoadFromFile(nodeId string) error {
 	return nil
 }
 
-// TODO: update walletFile incrementally.
 // Save2File saves the content of wallets into a local file.
 func (wallets *Wallets) Save2File(nodeId string) {
 	walletFile := fmt.Sprintf(walletFile, nodeId)

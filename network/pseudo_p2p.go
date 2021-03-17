@@ -66,11 +66,9 @@ var nodeIPAddress string
 // miningWalletAddress is only set on a miner node.
 var miningWalletAddress string
 
-// TODO: txPool is shared by all miner nodes. Will this invoke errors? Or we can only set one miner node?
 // A local pool for collecting known transactions, used for packing to a new block. Only the miner node can visit & modify this var.
 var txPool = make(map[string]core.Transaction)
 
-// TODO: blocksInTransit is shared by all nodes. Will this invoke errors?
 var blocksInTransit [][]byte
 
 /*
@@ -136,13 +134,6 @@ func StartNode(nodeId, minerAddr string) {
 	nodeIPAddress = fmt.Sprintf("localhost:%s", nodeId)
 	miningWalletAddress = minerAddr
 
-	// request and make a local copy of current lightChain from the whole network (actually the central node in our case)
-	chain := core.NewBlockChain(nodeId)
-	if nodeIPAddress != CentralNode {
-		// if this node is not the central node, it should query the central node whether the blockchain it copied is outdated
-		sendVersion(CentralNode, chain)
-	}
-
 	// open for connection
 	listener, err := net.Listen(protocol, nodeIPAddress)
 	if err != nil {
@@ -154,6 +145,13 @@ func StartNode(nodeId, minerAddr string) {
 			log.Panic(err)
 		}
 	}()
+
+	// request and make a local copy of current lightChain from the whole network (actually the central node in our case)
+	chain := core.NewBlockChain(nodeId)
+	if nodeIPAddress != CentralNode {
+		// if this node is not the central node, it should query the central node whether the blockchain it copied is outdated
+		sendVersion(CentralNode, chain)
+	}
 
 	// as a server, wait, establish and handle each connection from clients
 	for {
@@ -513,7 +511,7 @@ func sendGetBlocks(dstAddr string) {
 	}
 
 	payload := utils.GobEncode(getBlocks)
-	request := append(cmd2Bytes("version"), payload...)
+	request := append(cmd2Bytes("getblocks"), payload...)
 
 	send(dstAddr, request)
 }
@@ -527,7 +525,7 @@ func sendGetData(dstAddr, kind string, id []byte) {
 	}
 
 	payload := utils.GobEncode(getData)
-	request := append(cmd2Bytes("version"), payload...)
+	request := append(cmd2Bytes("getdata"), payload...)
 
 	send(dstAddr, request)
 }

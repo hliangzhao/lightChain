@@ -146,7 +146,7 @@ func (chain *BlockChain) AddBlock(block *Block) {
 			lastHash := bucket.Get([]byte("l"))
 			lastBlockData := bucket.Get(lastHash)
 			lastBlock := DeserializeBlock(lastBlockData)
-			if block.Height > lastBlock.Height { // TODO: can the if-not-condition happen?
+			if block.Height > lastBlock.Height { // the if-not condition could happen (received a already have block)
 				err = bucket.Put([]byte("l"), block.Hash)
 				if err != nil {
 					log.Panic(err)
@@ -160,8 +160,6 @@ func (chain *BlockChain) AddBlock(block *Block) {
 		log.Panic(err)
 	}
 }
-
-// TODO: the following teo functions may have different results under some scenarios.
 
 // GetChainHeight returns the most recent block's height of chain.
 func (chain *BlockChain) GetChainHeight() int {
