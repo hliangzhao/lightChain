@@ -25,16 +25,15 @@ import (
 	`github.com/boltdb/bolt`
 	`lightChain/utils`
 	`log`
-	`math`
 	`os`
 	`time`
 )
 
-// the db file path should be outside the project root path (for example, /var/db/).
-
 const (
-	dbFile       = "./db/lightChain_%s.db" // A key-value db created by boltdb. The key is block hash, the value is block body.
-	blocksBucket = "Blocks"                // The db has two buckets. One is blocksBucket (for blocks), another is utxoBucket (for UTXO).
+	dbFile             = "./db/lightChain_%s.db" // A key-value db created by boltdb. The key is block hash, the value is block body.
+	blocksBucket       = "Blocks"                // The db has two buckets. One is blocksBucket (for blocks), another is utxoBucket (for UTXO).
+	initCoinbaseReward = 666.0                   // The initial reward to the miner who successfully mined a block.
+	rewardDecayNum     = 2016                    // Every rewardDecayNum blocks added to lightChain, halve the coinbase reward.
 )
 
 var genesisCoinbaseData = fmt.Sprintf("The genesis block of lightChain is created at %v", time.Now().Local())
@@ -42,8 +41,9 @@ var genesisCoinbaseData = fmt.Sprintf("The genesis block of lightChain is create
 // BlockChain is a list of Block linked by hash pointers. It only saves the newest block hash and the pointer
 // to the local db file.
 type BlockChain struct {
-	Tip []byte   // the newest block' hash
-	Db  *bolt.DB // the pointer-to-db where the chain stored
+	Tip            []byte   // the newest block' hash
+	Db             *bolt.DB // the pointer-to-db where the chain stored
+	CoinbaseReward float64  // the coinbase reward value (decided by the chain length), this is the only way to generate new coins
 }
 
 // CreateBlockChain creates the lightChain across the whole network. The node whose Id is nodeId (actually network.CentralNode)
@@ -70,7 +70,7 @@ func CreateBlockChain(addr, nodeId string) *BlockChain {
 			}
 
 			// create a coinbase tx ---> create the genesis block
-			coinbaseTx := NewCoinbaseTx(addr, genesisCoinbaseData)
+			coinbaseTx := NewCoinbaseTx(addr, genesisCoinbaseData, initCoinbaseReward)
 			genesisBlock := NewGenesisBlock(coinbaseTx)
 
 			// add the genesis block to the blockchain
@@ -92,11 +92,11 @@ func CreateBlockChain(addr, nodeId string) *BlockChain {
 		log.Panic(err)
 	}
 
-	return &BlockChain{tip, db}
+	return &BlockChain{tip, db, initCoinbaseReward}
 }
 
 // NewBlockChain requests lightChain from the whole network for the owner of nodeId and create a local db to save it.
-// It returns a pointer to local copied BlockChain. Before calling this function, the node with nodeId should have
+// It returns a pointer to local copied BlockChain. NOTE: Before calling this function, the node with nodeId should have
 // already copied the chain to its local storage.
 func NewBlockChain(nodeId string) *BlockChain {
 	dbFile := fmt.Sprintf(dbFile, nodeId)
@@ -121,7 +121,9 @@ func NewBlockChain(nodeId string) *BlockChain {
 		log.Panic(err)
 	}
 
-	return &BlockChain{tip, db}
+	var chain = BlockChain{tip, db, initCoinbaseReward}
+	chain.DecCoinbaseReward()
+	return &chain
 }
 
 // AddBlock adds block to chain by writing it to db.
@@ -146,7 +148,7 @@ func (chain *BlockChain) AddBlock(block *Block) {
 			lastHash := bucket.Get([]byte("l"))
 			lastBlockData := bucket.Get(lastHash)
 			lastBlock := DeserializeBlock(lastBlockData)
-			if block.Height > lastBlock.Height { // the if-not condition could happen (received a already have block)
+			if block.Height > lastBlock.Height { // the if-not condition could happen (when receives an already have block)
 				err = bucket.Put([]byte("l"), block.Hash)
 				if err != nil {
 					log.Panic(err)
@@ -194,6 +196,11 @@ func (chain *BlockChain) GetBlocksNum() int {
 	return numBlocks
 }
 
+// ValidBlockChain checks whether chain is legal.
+func (chain *BlockChain) ValidBlockChain() bool {
+	return chain.GetBlocksNum() == chain.GetChainHeight()+1
+}
+
 // GetTx returns the specific Transaction denoted by blockIdx and txIdx.
 func (chain *BlockChain) GetTx(blockIdx, txIdx int) (*Transaction, error) {
 	iter := chain.Iterator()
@@ -211,9 +218,12 @@ func (chain *BlockChain) GetTx(blockIdx, txIdx int) (*Transaction, error) {
 	return nil, errors.New("transaction not found")
 }
 
-// DecCoinbaseReward decreases the coinbase reward every 2016 blocks.
+// DecCoinbaseReward decreases the coinbase reward every rewardDecayNum blocks.
 func (chain *BlockChain) DecCoinbaseReward() {
-	coinbaseReward = coinbaseReward / math.Pow(2.0, float64(chain.GetChainHeight()/2016))
+	decayTimes := chain.GetBlocksNum() / rewardDecayNum
+	for i := 0; i < decayTimes; i++ {
+		chain.CoinbaseReward /= 2
+	}
 }
 
 // GetBlock returns the pointer to the block whose hash is blockHash.

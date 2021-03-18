@@ -46,19 +46,15 @@ type Wallet struct {
 
 // NewWallet creates a new Wallet instance and returns the pointer to it.
 func NewWallet() *Wallet {
-	private, public := newKeyPair()
-	return &Wallet{private, public}
-}
-
-// newKeyPair returns a private-public key pair by ecdsa.
-func newKeyPair() (ecdsa.PrivateKey, []byte) {
+	// create a private-public key pair by ecdsa
 	curve := elliptic.P256()
 	private, err := ecdsa.GenerateKey(curve, rand.Reader)
 	if err != nil {
 		log.Panic(err)
 	}
 	pubKey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
-	return *private, pubKey
+
+	return &Wallet{*private, pubKey}
 }
 
 // GetAddr generates the address of a wallet based on the wallet's public key, sha256 algorithm, and base58 encoding.

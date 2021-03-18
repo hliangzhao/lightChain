@@ -419,7 +419,7 @@ func handleTx(request []byte, chain *core.BlockChain) {
 				return
 			}
 
-			coinbaseTx := core.NewCoinbaseTx(miningWalletAddress, "")
+			coinbaseTx := core.NewCoinbaseTx(miningWalletAddress, "", chain.CoinbaseReward)
 			// verifiedTxs = append([]*core.Transaction{coinbaseTx}, verifiedTxs...)
 			verifiedTxs = append(verifiedTxs, coinbaseTx)
 

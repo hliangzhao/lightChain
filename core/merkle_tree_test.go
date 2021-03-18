@@ -83,7 +83,7 @@ func TestNewMerkleTree(t *testing.T) {
 	n7 := NewMerkleNode(n5, n6, nil)
 
 	rootHash := fmt.Sprintf("%x", n7.Data)
-	mTree := NewMerkleTree(data)
+	mTree, _ := NewMerkleTree(data)
 
 	assert.Equal(
 		t,

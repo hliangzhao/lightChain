@@ -33,17 +33,17 @@ type CLI struct{}
 // the "addr" below means wallet address! We dont' really care about the IP address of nodes in the p2p overlay network.
 
 const usage = `Usage:
-	createchain -addr ADDR                        --- Create lightChain and send coinbase reward of genesis block to ADDR
-	createwallet                                  --- Generate a new wallet (public-private key pair) and save it into file
-	listaddr                                      --- List all addresses saved in local wallet file
-	printchain                                    --- Print all the blocks in local lightChain
-	printtx -b BLOCK_IDX -tx TX_IDX               --- Print the the TX_IDX-th transaction of the BLOCK_IDX-th block of local lightChain
-	printalltxs                                   --- Print all transactions in every block of local lightChain
-	getblocknum                                   --- Print the number of blocks in local lightChain
-	send -src ADDR1 -dst ADDR2 -amount AMT -mine  --- Send AMT of coins from ADDR1 to ADDR2, mine on the same node if -mine is set
-	getbalance -addr ADDR                         --- Get the balance of ADDR
-	rebuildutxo                                   --- Rebuild the UTXO
-	startnode -miner ADDR                         --- Add a new node to lightChain network with Node Id specified in NODE_ID environment variable. Enable mining if -miner set`
+  createchain -addr ADDR                        --- Create lightChain and send coinbase reward of genesis block to ADDR
+  createwallet                                  --- Generate a new wallet (public-private key pair) and save it into file
+  listaddr                                      --- List all addresses saved in local wallet file
+  printchain                                    --- Print all the blocks in local lightChain
+  printtx -b BLOCK_IDX -tx TX_IDX               --- Print the the TX_IDX-th transaction of the BLOCK_IDX-th block of local lightChain
+  printalltxs                                   --- Print all transactions in every block of local lightChain
+  getblocknum                                   --- Print the number of blocks in local lightChain
+  send -src ADDR1 -dst ADDR2 -amount AMT -mine  --- Send AMT of coins from ADDR1 to ADDR2, mine on the same node if -mine is set
+  getbalance -addr ADDR                         --- Get the balance of ADDR
+  rebuildutxo                                   --- Rebuild the UTXO
+  startnode -miner ADDR                         --- Add a new node to lightChain network with Node Id specified in NODE_ID environment variable. Enable mining if -miner set`
 
 // printUsage prints the usage of the cli.
 func (cli *CLI) printUsage() {
@@ -74,6 +74,10 @@ func (cli *CLI) listAddrs(nodeId string) {
 // printChain prints all blocks of local lightChain of nodeId from the newest to the oldest.
 func (cli *CLI) printChain(nodeId string) {
 	chain := core.NewBlockChain(nodeId)
+	if !chain.ValidBlockChain() {
+		fmt.Println("Local lightChain is illegal (height + 1 ≠ blocks num)!")
+		os.Exit(1)
+	}
 	defer func() {
 		err := chain.Db.Close()
 		if err != nil {
@@ -89,6 +93,8 @@ func (cli *CLI) printChain(nodeId string) {
 		fmt.Printf("Timestamp: %d\n", block.TimeStamp)
 		fmt.Printf("Previous block's hash: %x\n", block.PrevBlockHash)
 		fmt.Printf("Hash: %x\n", block.Hash)
+		fmt.Printf("Nonce: %d\n", block.Nonce)
+		fmt.Printf("Height: %d\n", block.Height)
 		// new a validator with the mined block to examine the nonce
 		pow := core.NewPoW(block)
 		fmt.Printf("Proof: PoW, Validated: %s\n\n", strconv.FormatBool(pow.Validate()))
@@ -104,6 +110,10 @@ func (cli *CLI) printChain(nodeId string) {
 // printTx prints the required Transaction's details. Note blockIdx is relative to the newest block (from the newest to the oldest).
 func (cli *CLI) printTx(nodeId string, blockIdx, txIdx int) {
 	chain := core.NewBlockChain(nodeId)
+	if !chain.ValidBlockChain() {
+		fmt.Println("Local lightChain is illegal (height + 1 ≠ blocks num)!")
+		os.Exit(1)
+	}
 	defer func() {
 		err := chain.Db.Close()
 		if err != nil {
@@ -121,6 +131,10 @@ func (cli *CLI) printTx(nodeId string, blockIdx, txIdx int) {
 // recent block to the genesis block.
 func (cli *CLI) printAllTxs(nodeId string) {
 	chain := core.NewBlockChain(nodeId)
+	if !chain.ValidBlockChain() {
+		fmt.Println("Local lightChain is illegal (height + 1 ≠ blocks num)!")
+		os.Exit(1)
+	}
 	defer func() {
 		err := chain.Db.Close()
 		if err != nil {
@@ -152,6 +166,10 @@ func (cli *CLI) printAllTxs(nodeId string) {
 // getBlockNum returns #blocks in lightChain.
 func (cli *CLI) getBlockNum(nodeId string) {
 	chain := core.NewBlockChain(nodeId)
+	if !chain.ValidBlockChain() {
+		fmt.Println("Local lightChain is illegal (height + 1 ≠ blocks num)!")
+		os.Exit(1)
+	}
 	defer func() {
 		err := chain.Db.Close()
 		if err != nil {
@@ -214,6 +232,10 @@ func (cli *CLI) send(srcAddr, dstAddr string, amount float64, nodeId string, min
 	}
 
 	chain := core.NewBlockChain(nodeId)
+	if !chain.ValidBlockChain() {
+		fmt.Println("Local lightChain is illegal (height + 1 ≠ blocks num)!")
+		os.Exit(1)
+	}
 	utxoSet := core.UTXOSet{BlockChain: chain}
 	defer func() {
 		err := chain.Db.Close()
@@ -234,8 +256,7 @@ func (cli *CLI) send(srcAddr, dstAddr string, amount float64, nodeId string, min
 	tx := core.NewUTXOTx(&senderWallet, dstAddr, amount, &utxoSet)
 
 	if mineNow {
-		// chain.DecCoinbaseReward()
-		coinbaseTx := core.NewCoinbaseTx(srcAddr, "")
+		coinbaseTx := core.NewCoinbaseTx(srcAddr, "", chain.CoinbaseReward)
 		txs := []*core.Transaction{coinbaseTx, tx}
 
 		newBlock := chain.MineBlock(txs)
@@ -254,6 +275,10 @@ func (cli *CLI) getBalance(addr, nodeId string) {
 	}
 
 	chain := core.NewBlockChain(nodeId)
+	if !chain.ValidBlockChain() {
+		fmt.Println("Local lightChain is illegal (height + 1 ≠ blocks num)!")
+		os.Exit(1)
+	}
 	utxoSet := core.UTXOSet{BlockChain: chain}
 	defer func() {
 		err := chain.Db.Close()
@@ -277,6 +302,10 @@ func (cli *CLI) getBalance(addr, nodeId string) {
 // is shared by all nodes in the lightChain network.
 func (cli *CLI) rebuildUTXO(nodeId string) {
 	chain := core.NewBlockChain(nodeId)
+	if !chain.ValidBlockChain() {
+		fmt.Println("Local lightChain is illegal (height + 1 ≠ blocks num)!")
+		os.Exit(1)
+	}
 	utxoSet := core.UTXOSet{BlockChain: chain}
 	utxoSet.Rebuild()
 
@@ -396,6 +425,7 @@ func (cli *CLI) Run() {
 			log.Panic(err)
 		}
 	default:
+		fmt.Printf("Unsupported command: %s\n", os.Args[1])
 		cli.printUsage()
 		os.Exit(1)
 	}

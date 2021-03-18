@@ -18,6 +18,7 @@ package core
 
 import (
 	`crypto/sha256`
+	`errors`
 	`log`
 )
 
@@ -55,7 +56,7 @@ type MerkleTree struct {
 }
 
 // NewMerkleTree creates a Merkle tree and returns the pointer to the root.
-func NewMerkleTree(data [][]byte) *MerkleTree {
+func NewMerkleTree(data [][]byte) (*MerkleTree, error) {
 	var nodes []MerkleNode
 	// should have odd leaf nodes
 	if len(data)%2 != 0 {
@@ -78,9 +79,9 @@ func NewMerkleTree(data [][]byte) *MerkleTree {
 	}
 
 	if len(nodes) != 0 {
-		return &MerkleTree{RootNode: &nodes[0]}
+		return &MerkleTree{RootNode: &nodes[0]}, nil
 	} else {
 		// if this if-condition holds, error happened!
-		return &MerkleTree{}
+		return &MerkleTree{}, errors.New("sth. wrong when constructing the merkle tree")
 	}
 }

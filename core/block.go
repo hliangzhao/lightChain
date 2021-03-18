@@ -19,6 +19,7 @@ package core
 import (
 	`bytes`
 	`encoding/gob`
+	`lightChain/utils`
 	`log`
 	`time`
 )
@@ -62,18 +63,10 @@ func NewGenesisBlock(coinbaseTx *Transaction) *Block {
 
 // SerializeBlock converts the block's content into a serialized byte slice.
 func (block *Block) SerializeBlock() []byte {
-	var buf bytes.Buffer
-	encoder := gob.NewEncoder(&buf)
-
-	err := encoder.Encode(block)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	return buf.Bytes()
+	return utils.GobEncode(block)
 }
 
-// DeserializeBlock returns a block pointer decoded from the serialized data encodedData.
+// DeserializeBlock returns a block pointer decoded from encodedData.
 func DeserializeBlock(encodedData []byte) *Block {
 	var block Block
 	decoder := gob.NewDecoder(bytes.NewReader(encodedData))
@@ -82,7 +75,6 @@ func DeserializeBlock(encodedData []byte) *Block {
 	if err != nil {
 		log.Panic(err)
 	}
-
 	return &block
 }
 
@@ -93,6 +85,6 @@ func (block *Block) HashingAllTxs() []byte {
 	for _, tx := range block.Transactions {
 		serializedTxData = append(serializedTxData, tx.SerializeTx())
 	}
-	merkleTree := NewMerkleTree(serializedTxData)
+	merkleTree, _ := NewMerkleTree(serializedTxData)
 	return merkleTree.RootNode.Data
 }
