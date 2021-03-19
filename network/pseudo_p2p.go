@@ -20,7 +20,7 @@ In this network, we have:
 	- a central node (address is hardcoded as "localhost:23333"): It is the default "seed node" a newly added
 		node connected to (In bitcoin, seed nodes are chosen by DNS server). In out simplified case, when a new
 		node is added to the blockchain network, it connects to "localhost:23333", and downloads (synchronizes) the
-		latest lightChain from it. The central node creates lightChain but do not mining.
+		latest lightChain from it. The central node creates lightChain (it can mine if -mine is set when a tx is launched).
 
 	- a miner node: this node plays the role of miner. It has a transaction pool, where created-but-not-packed
 		transactions are collected. When the pool has enough transactions, this node will pack them into
@@ -55,15 +55,13 @@ const (
 	txNum4Mining = 2                 // if the txPool has more than txNum4Mining txs, the miner node starts packing and mining
 )
 
-// KnownNodes plays the role of DNS server, which is responsible for node register and discovery.
+// KnownNodes plays the role of connection to DNS server, which is responsible for node register and discovery.
 var KnownNodes = []string{CentralNode}
-
-// The following two vars are shared by each node
 
 // nodeIPAddress plays the role of "current node". It is set at StartNode function.
 var nodeIPAddress string
 
-// miningWalletAddress is only set on a miner node.
+// miningWalletAddress is only set on a miner node (if -miner is set, the node is a miner node).
 var miningWalletAddress string
 
 // A local pool for collecting known transactions, used for packing to a new block. Only the miner node can visit & modify this var.
@@ -236,6 +234,7 @@ func handleVersion(request []byte, chain *core.BlockChain) {
 	}
 }
 
+// TODO: this func may not used. The content of this func is included in handleVersion.
 func handleAddr(request []byte) {
 	var buf bytes.Buffer
 	var payload sAddr

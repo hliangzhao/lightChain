@@ -31,7 +31,7 @@ type UTXOSet struct {
 
 // FindSpendableOutputs returns the coin quantity (the sum of legal output's value) and the corresponding slice of
 // unspent transactions' outputs (UTXO) for the owner of pubKeyHash, where the coin quantity is expected to not less
-// than amount. The required utxo are read from db.
+// than amount. Since all utxos are stored in db when new tx is created, we just directly read them from db.
 func (utxoSet UTXOSet) FindSpendableOutputs(pubKeyHash []byte, amount float64) (float64, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
 	accumulated := 0.0
@@ -42,7 +42,7 @@ func (utxoSet UTXOSet) FindSpendableOutputs(pubKeyHash []byte, amount float64) (
 			bucket := tx.Bucket([]byte(utxoBucket))
 			cursor := bucket.Cursor()
 
-			// iteration over all k-v pairs
+			// get txOutputs of each tx
 			for key, value := cursor.First(); key != nil; key, value = cursor.Next() {
 				txId := hex.EncodeToString(key)
 				txOutputs := DeserializeOutputs(value)
@@ -63,7 +63,8 @@ func (utxoSet UTXOSet) FindSpendableOutputs(pubKeyHash []byte, amount float64) (
 	return accumulated, unspentOutputs
 }
 
-// FindUTXO returns the UTXO for the owner of pubKeyHash.
+// FindUTXO returns the UTXO for the owner of pubKeyHash. Since all utxos are stored in db when new tx is created,
+// we just directly read them from db.
 func (utxoSet UTXOSet) FindUTXO(pubKeyHash []byte) []TxOutput {
 	var utxo []TxOutput
 	db := utxoSet.BlockChain.Db
@@ -135,7 +136,7 @@ func (utxoSet UTXOSet) Rebuild() {
 		log.Panic(err)
 	}
 
-	// call FindUTXO to get the new utxo set, and save the content of it into the newly created bucket
+	// call BlockChain.FindUTXO to get the new utxo set, and save the content of it into the newly created bucket
 	newUtxo := utxoSet.BlockChain.FindUTXO()
 	err = db.Update(
 		func(tx *bolt.Tx) error {
@@ -159,6 +160,7 @@ func (utxoSet UTXOSet) Rebuild() {
 }
 
 // Update updates the utxo set according to the newly mined block. Here block must be the tip block of lightChain.
+// For this reason, we just need to check each input of the pointed beforehand txs.
 func (utxoSet UTXOSet) Update(block *Block) {
 	db := utxoSet.BlockChain.Db
 
@@ -174,6 +176,8 @@ func (utxoSet UTXOSet) Update(block *Block) {
 						updatedOutputs := TxOutputs{}
 						outs := DeserializeOutputs(bucket.Get(vin.TxId))
 						for outIdx, out := range outs.Outputs {
+							// note that an output can never be pointed by multiple inputs!
+							// Thus, if outIdx is not vin.VoutIdx, outIdx is not pointed by any vin. Thus this out is unspent
 							if outIdx != vin.VoutIdx {
 								// out is not spent out in this newly mined block, add it to utxo
 								updatedOutputs.Outputs = append(updatedOutputs.Outputs, out)
