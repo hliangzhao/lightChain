@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the lightChain. If not, see <http://www.gnu.org/licenses/>.
 
-/* This file defines the data structure of Wallet and Wallets, with basic operations provided. */
+// This file defines the data structure of Wallet and Wallets, with basic operations provided.
+
 package core
 
 import (
